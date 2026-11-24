@@ -1,0 +1,14 @@
+# 비밀값
+.env
+.env*.local
+
+# macOS / Xcode
+.DS_Store
+DerivedData/
+build/
+*.xcuserstate
+xcuserdata/
+
+# 생성물 (xcodegen / 빌드)
+*.xcodeproj
+dist/
