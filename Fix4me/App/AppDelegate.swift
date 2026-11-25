@@ -28,6 +28,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         setUpMainMenu()
         setUpStatusItem()
         applyShortcuts()
+        settingsModel.tabChanged = { [weak self] in self?.updateStatusIcon() }
         settingsModel.shortcutsChanged = { [weak self] in self?.applyShortcuts() }
         precomputer.start()
         doubleTap.start()
@@ -75,7 +76,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func setUpStatusItem() {
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        item.button?.image = NSImage(systemSymbolName: "text.badge.checkmark", accessibilityDescription: "Fix4me")
 
         let menu = NSMenu()
         menu.addItem(withTitle: "지금 교정", action: #selector(correctNow), keyEquivalent: "").target = self
@@ -86,6 +86,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(withTitle: "Fix4me 종료", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         item.menu = menu
         statusItem = item
+        updateStatusIcon()
+    }
+
+    /// 켜져 있으면 쓰는 펜, 끄면 빗금 그은 펜
+    private func updateStatusIcon() {
+        let on = SharedStore.isOn
+        statusItem?.button?.image = NSImage(
+            systemSymbolName: on ? "pencil.and.scribble" : "pencil.slash", accessibilityDescription: on ? "Fix4me" : "Fix4me (꺼짐)"
+        )
     }
 
     /// 교정 단축키는 하나만: ⌥ 두 번을 고르면 ⌃⌥F 등록을 풀고, 아니면 그 반대

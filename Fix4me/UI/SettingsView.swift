@@ -14,8 +14,12 @@ final class SettingsModel {
     var hotKeysOK = true
     /// 교정 강도 — 바꾸면 즉시 저장, 다음 교정부터 적용 (didSet 안에서 자기 대입 금지: @Observable 재귀)
     var tab = LevelTab.current {
-        didSet { tab.save() }
+        didSet {
+            tab.save()
+            tabChanged()
+        }
     }
+    @ObservationIgnored var tabChanged: () -> Void = {}
     var isOn: Bool { tab.level != nil }
 
     var scope = Prefs.scope { didSet { Prefs.scope = scope } }
