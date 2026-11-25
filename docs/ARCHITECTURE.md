@@ -47,3 +47,8 @@ xcodebuild -project Fix4me.xcodeproj -scheme Fix4me -derivedDataPath build/Deriv
 1. **H3 선계산**: 입력이 멈출 때마다 백그라운드에서 미리 교정 → 단축키는 대기 0초로 즉시 적용 + 커서 옆 "N" 배지
 2. 앱별 쓰기 방식 기억 (AX 직접 쓰기가 안 되는 앱은 처음부터 붙여넣기)
 3. iPhone (키보드 툴바 버튼 / 뒷면 탭 단축어)
+
+## 알려진 함정
+
+- **손쉬운 사용을 허용해도 실행 중인 앱은 계속 "필요함"**: `AXIsProcessTrusted()` 는 프로세스 안에서 값을 붙잡고 있어 폴링해도 안 바뀐다 (tccd 로그는 authValue=2 허용). 허용 후 앱을 다시 켜야 반영된다.
+- Dock 아이콘 표시(일반 앱): 메뉴 막대 아이콘은 노치·메뉴 막대 정리 앱에 가려질 수 있어서. 다시 열기(Dock 클릭·Spotlight)는 설정 창을 띄운다.

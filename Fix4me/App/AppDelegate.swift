@@ -12,6 +12,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // 단위 테스트 호스트로 뜰 때는 메뉴·단축키를 만들지 않는다
         guard ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil else { return }
 
+        setUpMainMenu()
         setUpStatusItem()
         let ok1 = HotKeyCenter.shared.register(HotKeyCenter.correct) { [weak self] in self?.controller.correctFocused() }
         let ok2 = HotKeyCenter.shared.register(HotKeyCenter.revert) { [weak self] in self?.controller.revertLast() }
@@ -21,6 +22,39 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if !AXText.isTrusted || Keychain.read(Keychain.openRouterAccount) == nil || !settingsModel.hotKeysOK {
             showSettings()
         }
+    }
+
+    /// Dock 아이콘 클릭·Finder/Spotlight 로 다시 열면 설정 창을 띄운다 (없으면 이미 켜진 앱이 무반응)
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        showSettings()
+        return true
+    }
+
+    /// 일반 앱(Dock 표시)이 되면 상단 메뉴가 필요하다 — 특히 편집 메뉴가 없으면 키 입력란에서 ⌘V 가 안 된다
+    private func setUpMainMenu() {
+        let main = NSMenu()
+
+        let appMenu = NSMenu()
+        appMenu.addItem(withTitle: "설정…", action: #selector(openSettings), keyEquivalent: ",").target = self
+        appMenu.addItem(.separator())
+        appMenu.addItem(withTitle: "Fix4me 종료", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        main.addItem(withTitle: "Fix4me", action: nil, keyEquivalent: "").submenu = appMenu
+
+        let edit = NSMenu(title: "편집")
+        edit.addItem(withTitle: "실행 취소", action: Selector(("undo:")), keyEquivalent: "z")
+        edit.addItem(withTitle: "실행 복귀", action: Selector(("redo:")), keyEquivalent: "Z")
+        edit.addItem(.separator())
+        edit.addItem(withTitle: "잘라내기", action: #selector(NSText.cut(_:)), keyEquivalent: "x")
+        edit.addItem(withTitle: "복사하기", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
+        edit.addItem(withTitle: "붙여넣기", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
+        edit.addItem(withTitle: "전체 선택", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
+        main.addItem(withTitle: "편집", action: nil, keyEquivalent: "").submenu = edit
+
+        let window = NSMenu(title: "윈도우")
+        window.addItem(withTitle: "닫기", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
+        main.addItem(withTitle: "윈도우", action: nil, keyEquivalent: "").submenu = window
+
+        NSApp.mainMenu = main
     }
 
     private func setUpStatusItem() {

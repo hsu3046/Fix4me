@@ -5,5 +5,5 @@ import AppKit
 let app = NSApplication.shared
 let delegate = AppDelegate()
 app.delegate = delegate
-app.setActivationPolicy(.accessory)
+app.setActivationPolicy(.regular)   // Dock 에 표시 (메뉴 막대 아이콘은 노치·정리 앱에 가려질 수 있다)
 app.run()
