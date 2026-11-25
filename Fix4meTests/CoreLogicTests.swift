@@ -179,6 +179,35 @@ final class DictionaryTests: XCTestCase {
     }
 }
 
+final class PipelineTests: XCTestCase {
+    func testRewriteProofreadsFirstAndRewritesThatResult() async throws {
+        var calls: [String] = []
+        let out = try await CorrectionPipeline.run("않", level: .rewrite) { text, level in
+            calls.append("\(level):\(text)")
+            return level == .proofread ? "안" : text + "!"
+        }
+        XCTAssertEqual(calls, ["proofread:않", "rewrite:안"])
+        XCTAssertEqual(out, "안!")
+    }
+
+    func testOtherLevelsCallOnce() async throws {
+        for level in [CorrectionLevel.proofread, .polish] {
+            var calls: [CorrectionLevel] = []
+            _ = try await CorrectionPipeline.run("글", level: level) { text, l in calls.append(l); return text }
+            XCTAssertEqual(calls, [level])
+        }
+    }
+
+    func testFailedProofreadStopsBeforeRewriting() async {
+        var calls = 0
+        do {
+            _ = try await CorrectionPipeline.run("글", level: .rewrite) { _, _ in calls += 1; throw CorrectionError.implausible }
+            XCTFail("오류가 나야 한다")
+        } catch {}
+        XCTAssertEqual(calls, 1)
+    }
+}
+
 final class RetryTests: XCTestCase {
     func testEmptyResponseIsRetriedOnceOnly() async {
         var calls = 0

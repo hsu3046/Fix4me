@@ -18,7 +18,7 @@ if let i = CommandLine.arguments.firstIndex(of: "--sections"), i + 1 < CommandLi
     exit(0)
 }
 
-// 개발용: `Fix4me --compare "문장" [--before "앞 문맥"] [--after "뒤 문맥"] [--dict "단어,단어"]` → 세 교정 강도의 결과를 출력하고 종료.
+// 개발용: `Fix4me --compare "문장" [--before "앞 문맥"] [--after "뒤 문맥"] [--dict "단어,단어"] [--level rewrite]` → 세 교정 강도의 결과를 출력하고 종료.
 // 키는 앱의 키체인 항목에서 읽고 출력하지 않는다 (같은 서명의 바이너리라 키체인 확인 창 없음).
 if let i = CommandLine.arguments.firstIndex(of: "--compare"), i + 1 < CommandLine.arguments.count {
     let text = CommandLine.arguments[i + 1]
@@ -28,6 +28,7 @@ if let i = CommandLine.arguments.firstIndex(of: "--compare"), i + 1 < CommandLin
         return args[j + 1]
     }
     let before = option("--before"), after = option("--after")
+    let levels = CorrectionLevel(rawValue: option("--level")).map { [$0] } ?? CorrectionLevel.allCases
     let dictionary = option("--dict").split(separator: ",").map(String.init)
     Task {
         guard let key = Keychain.read(Keychain.openRouterAccount) else {
@@ -35,10 +36,13 @@ if let i = CommandLine.arguments.firstIndex(of: "--compare"), i + 1 < CommandLin
             exit(1)
         }
         print("원문      | \(text)")
-        for level in CorrectionLevel.allCases {
+        for level in levels {
             let started = ContinuousClock.now
             do {
-                let result = try await OpenRouterClient(apiKey: key).correct(text, level: level, before: before, after: after, dictionary: dictionary)
+                let client = OpenRouterClient(apiKey: key)
+                let result = try await CorrectionPipeline.run(text, level: level) { input, stage in
+                    try await client.correct(input, level: stage, before: before, after: after, dictionary: dictionary)
+                }
                 let ms = (ContinuousClock.now - started).components
                 print(String(format: "%@ %.2fs | %@", level.title.padding(toLength: 5, withPad: "　", startingAt: 0),
                              Double(ms.seconds) + Double(ms.attoseconds) / 1e18, result))

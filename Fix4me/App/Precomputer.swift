@@ -143,7 +143,7 @@ final class Precomputer {
             for start in stride(from: 0, to: pending.count, by: Self.maxParallel) {
                 let batch = pending[start..<min(start + Self.maxParallel, pending.count)]
                 await withTaskGroup(of: Void.self) { group in
-                    for r in batch where takeQuota() {
+                    for r in batch where takeQuota(CorrectionPipeline.stages(for: level).count) {
                         let text = ns.substring(with: r)
                         let context = Sectioner.context(before: r, in: value)
                         group.addTask { await self.request(text, level: level, context: context) }
@@ -174,11 +174,11 @@ final class Precomputer {
     }
 
     /// 분당 요청 수 상한 (비용 안전장치)
-    private func takeQuota() -> Bool {
+    private func takeQuota(_ calls: Int) -> Bool {
         let now = Date.now
         sent.removeAll { now.timeIntervalSince($0) > 60 }
-        guard sent.count < Self.maxRequestsPerMinute else { return false }
-        sent.append(now)
+        guard sent.count + calls <= Self.maxRequestsPerMinute else { return false }
+        sent += Array(repeating: now, count: calls)
         return true
     }
 

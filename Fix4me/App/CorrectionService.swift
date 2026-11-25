@@ -22,7 +22,13 @@ final class CorrectionService {
 
         guard let apiKey = Keychain.read(Keychain.openRouterAccount), !apiKey.isEmpty else { throw CorrectionError.missingKey }
         let client = OpenRouterClient(apiKey: apiKey)
-        let task = Task { try await client.correct(text, level: level, before: before, dictionary: dictionary) }
+        let task = Task {
+            try await CorrectionPipeline.run(text, level: level) { input, stage in
+                // 마지막이 아닌 단계(다시 쓰기 앞의 교정)는 캐시·진행 중 요청을 함께 쓴다
+                if stage != level { return try await correct(input, level: stage, before: before) }
+                return try await client.correct(input, level: stage, before: before, dictionary: dictionary)
+            }
+        }
         inFlight[key] = task
         defer { inFlight[key] = nil }
         let result = try await task.value

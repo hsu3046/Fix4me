@@ -29,6 +29,7 @@
 | `Fix4me/Core/OpenRouterClient.swift` | 교정 요청 1회, 오류 원문(status·metadata.raw) 보존 |
 | `Fix4me/App/Precomputer.swift` | 미리 교정: 0.3초마다 감시, 0.9초 멈추면 요청, 표시 (분당 30건 상한, 오류 시 쉼) |
 | `Fix4me/App/CorrectionService.swift`, `Core/CorrectionCache.swift` | 결과 캐시(메모리, 300개)와 진행 중 요청 공유 |
+| `Fix4me/Core/CorrectionPipeline.swift` | 강도별 호출 순서. 다시 쓰기는 교정 → 다시 쓰기 (교정 결과는 캐시 공유, 분당 상한에는 2건으로 셈) |
 | `Fix4me/UI/Indicator.swift`, `DiffText.swift`, `Core/IndicatorLayout.swift` | 고칠 문단 왼쪽 막대(위치를 모르면 모서리 배지), 롤오버 미리보기(원문 취소선 + 고친 글, 적용/무시) |
 | `Fix4me/Core/PersonalDictionary.swift` | 개인 사전: 프롬프트 지시 + 어긴 줄은 원문으로 |
 | `Fix4me/Core/PrecomputeFilter.swift`, `Prefs.swift` | 보내지 않을 글 판정, 설정값·제외 앱 |
