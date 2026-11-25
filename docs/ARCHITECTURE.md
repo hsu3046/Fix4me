@@ -7,7 +7,7 @@
 ```
 ⌃⌥F (Carbon 전역 단축키)
   → AXText.focused()        앞 앱의 포커스 요소·값·선택 범위 (Chrome/Electron 은 접근성 트리 강제 활성화 후 재시도)
-  → TextScope.plan()        선택 영역 우선. 자동 = 1500자 이하는 전체, 넘으면 바뀐 문단(최대 8개) / 커서 문단 / 입력창 전체(묶음으로 나눔)
+  → TextScope.plan()        선택 영역 우선. 자동 = 바뀐 섹션(최대 8개), 없으면 커서 섹션 / 커서 섹션 / 모든 섹션
   → CorrectionService       캐시 적중이면 즉시, 미리 교정이 보내 둔 요청이면 이어받음
   → OpenRouterClient        anthropic/claude-haiku-5.5, 설정의 교정 강도별 프롬프트, provider.sort=latency, {"corrected": ...} JSON
   → CorrectionParser        JSON 추출 + 길이 비율로 "대답/번역" 응답 차단
@@ -33,6 +33,7 @@
 | `Fix4me/Core/PersonalDictionary.swift` | 개인 사전: 프롬프트 지시 + 어긴 줄은 원문으로 |
 | `Fix4me/Core/PrecomputeFilter.swift`, `Prefs.swift` | 보내지 않을 글 판정, 설정값·제외 앱 |
 | `Fix4me/Core/Keychain.swift` | API 키 저장 (로그인 키체인) |
+| `Fix4me/Core/Sectioner.swift` | 규칙만으로 섹션 나누기: 줄 종류 → 경계 3단계 → 크기 맞추기, 참고 문맥(가까운 제목 + 앞 덩어리) |
 | `Fix4me/Core/TextScope.swift`, `TextDiff.swift`, `CorrectionParser.swift` | 순수 로직 (단위 테스트 대상) |
 | `Fix4me/Core/CorrectionLevel.swift` | 교정 강도(교정·다듬기·다시 쓰기): 프롬프트 지시·길이 범위·저장 |
 | `Fix4me/UI/HUD.swift` | 포커스를 빼앗지 않는 플로팅 패널 |
@@ -44,6 +45,7 @@
 ./scripts/build.sh        # xcodegen → xcodebuild → Apple Development 인증서 서명 → dist/Fix4me.app
 xcodebuild -project Fix4me.xcodeproj -scheme Fix4me -derivedDataPath build/DerivedData test
 dist/Fix4me.app/Contents/MacOS/Fix4me --compare "비교할 문장"   # 세 강도 결과 비교 (개발용)
+dist/Fix4me.app/Contents/MacOS/Fix4me --sections 파일               # LLM 없이 섹션 경계만 출력 (개발용)
 ```
 
 - `Fix4me.xcodeproj` 는 `project.yml` 에서 생성 (커밋 안 함).
@@ -59,6 +61,7 @@ dist/Fix4me.app/Contents/MacOS/Fix4me --compare "비교할 문장"   # 세 강�
 
 - 입력창에 **원래 있던 글은 보내지 않는다.** 포커스를 얻은 때의 글이 기준이고, 사용자가 바꾼 뒤부터 본다.
 - 보내지 않음: 비밀번호 입력(시스템 보안 입력 포함), 검색창, 브라우저 주소창, API 키처럼 보이는 글, 띄어쓰기 없는 영숫자 한 덩어리, 제외 앱(기본: 터미널·비밀번호 관리자·코드 편집기).
+- 코드 블록·표·인용·구분선·주소만 있는 줄·서명은 섹션에서 빠지므로 보내지도 고치지도 않는다 (직접 선택하면 예외).
 - 일부 문단만 고치면 그 문단만 처리된 것으로 본다 (`TextScope.baseline(_:adding:)`).
 
 ## 알려진 함정

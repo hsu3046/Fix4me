@@ -183,8 +183,8 @@ final class CorrectionController {
         for start in stride(from: 0, to: originals.count, by: width) {
             let batch = Array(start..<min(start + width, originals.count))
             let tasks = batch.map { i in
-                let context = TextScope.context(around: ranges[i], in: value)
-                return Task { try await service.correct(originals[i], level: level, before: context.before, after: context.after) }
+                let context = Sectioner.context(before: ranges[i], in: value)
+                return Task { try await service.correct(originals[i], level: level, before: context) }
             }
             for (i, task) in zip(batch, tasks) { results[i] = try await task.value }
         }

@@ -104,15 +104,14 @@ final class Precomputer {
             indicator.hide()
             return
         }
-        guard Date.now.timeIntervalSince(s.lastChange) >= Self.idle,
-              !TextScope.changedParagraphs(in: field.value as NSString, baseline: s.baseline).isEmpty else { return indicator.hide() }
+        guard Date.now.timeIntervalSince(s.lastChange) >= Self.idle else { return indicator.hide() }
 
         let level = CorrectionLevel.current, scope = Prefs.scope
         // 선택 영역은 미리 교정하지 않는다 (커서 위치만 사용)
-        let targets = TextScope.plan(
-            in: field.value, selection: NSRange(location: field.selection.location, length: 0),
-            mode: scope, level: level, baseline: s.baseline
+        let targets = TextScope.precomputePlan(
+            in: field.value, cursor: field.selection.location, mode: scope, level: level, baseline: s.baseline
         ).filter { $0.length <= TextScope.maxLength }
+        guard !targets.isEmpty else { return indicator.hide() }
 
         let request = Request(value: field.value, level: level, scope: scope, dictionary: Prefs.dictionary)
         if s.requested != request {
@@ -146,7 +145,7 @@ final class Precomputer {
                 await withTaskGroup(of: Void.self) { group in
                     for r in batch where takeQuota() {
                         let text = ns.substring(with: r)
-                        let context = TextScope.context(around: r, in: value)
+                        let context = Sectioner.context(before: r, in: value)
                         group.addTask { await self.request(text, level: level, context: context) }
                     }
                 }
@@ -155,9 +154,9 @@ final class Precomputer {
         }
     }
 
-    private func request(_ text: String, level: CorrectionLevel, context: (before: String, after: String)) async {
+    private func request(_ text: String, level: CorrectionLevel, context: String) async {
         do {
-            _ = try await service.correct(text, level: level, before: context.before, after: context.after)
+            _ = try await service.correct(text, level: level, before: context)
             log.info("precomputed len=\(text.utf16.count)")   // 글 내용은 남기지 않는다
         } catch {
             // 조용히 실패하되 연달아 두드리지 않는다. 키·잔액 문제는 길게 쉰다. (단축키를 누르면 오류가 보인다)

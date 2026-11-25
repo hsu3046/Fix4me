@@ -146,7 +146,7 @@ struct SettingsView: View {
 
             Section("미리 교정") {
                 Toggle("입력이 멈추면 미리 교정해 두기", isOn: $model.precompute)
-                Toggle("고칠 문단을 왼쪽 막대로 표시 (올리면 미리보기)", isOn: $model.indicator).disabled(!model.precompute)
+                Toggle("고칠 섹션을 왼쪽 막대로 표시 (올리면 미리보기)", isOn: $model.indicator).disabled(!model.precompute)
                 Text("켜면 단축키를 누르지 않은 글도 OpenRouter 로 보내요. 비밀번호 입력란, 검색창, 주소창, 키처럼 보이는 글과 아래 앱은 보내지 않아요.")
                     .font(.caption).foregroundStyle(.secondary)
                 DisclosureGroup("제외한 앱 \(model.excluded.count)개") {

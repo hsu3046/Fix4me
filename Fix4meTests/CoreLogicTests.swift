@@ -4,17 +4,16 @@ import XCTest
 final class TextScopeTests: XCTestCase {
     private func texts(
         _ value: String, cursor: Int? = nil, selection: NSRange? = nil, mode: ScopeMode = .auto,
-        level: CorrectionLevel = .proofread, baseline: String? = nil
+        level: CorrectionLevel = .polish, baseline: String? = nil
     ) -> [String] {
         let ns = value as NSString
         let sel = selection ?? NSRange(location: cursor ?? ns.length, length: 0)
-        return TextScope.plan(in: value, selection: sel, mode: mode, level: level, baseline: baseline)
-            .map { ns.substring(with: $0) }
+        return TextScope.plan(in: value, selection: sel, mode: mode, level: level, baseline: baseline).map { ns.substring(with: $0) }
     }
 
-    /// wholeLimit 를 넘는 글: 구별되는 문단 60개
-    private let longParagraphs = (0..<60).map { "문단 \($0) " + String(repeating: "내용입니다 ", count: 8) + "끝." }
-    private var long: String { longParagraphs.joined(separator: "\n") }
+    /// 빈 줄로 나뉜, 서로 구별되는 문단 20개 (각각 40자 이상)
+    private let parts = (0..<20).map { "문단 \($0) " + String(repeating: "내용입니다 ", count: 8) + "끝." }
+    private var long: String { parts.joined(separator: "\n\n") }
 
     func testSelectionWinsInEveryMode() {
         for mode in ScopeMode.allCases {
@@ -22,74 +21,67 @@ final class TextScopeTests: XCTestCase {
         }
     }
 
-    func testParagraphModeUsesCursorParagraph() {
-        let text = "첫 문단입니다.\n둘째 문단 않 지켜요.\n셋째"
-        let cursor = (text as NSString).range(of: "둘째").location + 1
-        XCTAssertEqual(texts(text, cursor: cursor, mode: .paragraph), ["둘째 문단 않 지켜요."])
-    }
-
-    func testAutoTakesWholeShortMessage() {
-        // Slack 여러 줄 메시지: 커서가 어디 있든 전체 (앞뒤 빈 줄은 제외)
-        XCTAssertEqual(texts("\n안녕하세요.\n\n둘째 줄 입니다.\n", cursor: 3), ["안녕하세요.\n\n둘째 줄 입니다."])
-    }
-
     func testBlankIsEmpty() {
         for mode in ScopeMode.allCases { XCTAssertEqual(texts("  \n \n", mode: mode), []) }
-        XCTAssertEqual(texts("abc\n   \ndef", cursor: 5, mode: .paragraph), [])
     }
 
-    func testAutoLongTextPicksOnlyChangedParagraphs() {
-        var edited = longParagraphs
-        edited[5] = "다섯째를 고쳣습니다."
-        edited.insert("새로 쓴 문단 입니다.", at: 40)
-        // 커서는 전혀 다른 곳(맨 앞)이어도 손댄 두 문단만
-        XCTAssertEqual(texts(edited.joined(separator: "\n"), cursor: 0, baseline: long), ["다섯째를 고쳣습니다.", "새로 쓴 문단 입니다."])
+    func testCursorMode() {
+        XCTAssertEqual(texts(long, cursor: (long as NSString).range(of: "문단 7").location + 3, mode: .paragraph), [parts[7]])
+        // 빈 줄·보호 구역에 커서가 있으면 엉뚱한 섹션을 고치지 않는다
+        let code = "설명입니다.\n```\nlet x = 1\n```"
+        XCTAssertEqual(texts(code, cursor: (code as NSString).range(of: "let").location, mode: .paragraph), [])
+    }
+
+    func testAutoPicksOnlyChangedSections() {
+        var edited = parts
+        edited[5] = parts[5] + " 고쳣습니다."
+        edited[12] = parts[12] + " 또 고쳣습니다."
+        XCTAssertEqual(texts(edited.joined(separator: "\n\n"), cursor: 0, baseline: long), [edited[5], edited[12]])
     }
 
     func testDuplicateParagraphAddedOnceIsDetected() {
-        let edited = long + "\n" + longParagraphs[0]   // 같은 문단을 한 번 더 씀
-        // 커서는 다른 문단 → 감지에 실패하면 커서 문단이 나와서 구별된다
-        let cursor = (edited as NSString).range(of: longParagraphs[10]).location
-        XCTAssertEqual(texts(edited, cursor: cursor, baseline: long), [longParagraphs[0]])
+        let edited = long + "\n\n" + parts[0]
+        let cursor = (edited as NSString).range(of: parts[10]).location
+        XCTAssertEqual(texts(edited, cursor: cursor, baseline: long), [parts[0]])
     }
 
-    func testAutoLongTextWithoutBaselineFallsBackToCursorParagraph() {
-        XCTAssertEqual(texts(long, cursor: 0), [longParagraphs[0]])
-        XCTAssertEqual(texts(long, cursor: 0, baseline: long), [longParagraphs[0]])
+    func testAutoWithoutChangeUsesCursorSection() {
+        XCTAssertEqual(texts(long, cursor: 0), [parts[0]])
+        XCTAssertEqual(texts(long, cursor: 0, baseline: long), [parts[0]])
     }
 
-    func testChangedParagraphsAreCappedNearCursor() {
-        let edited = longParagraphs.map { $0 + " 수정" }.joined(separator: "\n")
+    func testChangedSectionsAreCappedNearCursor() {
+        let edited = parts.map { $0 + " 수정" }.joined(separator: "\n\n")
         let picked = texts(edited, cursor: (edited as NSString).length, baseline: long)
-        XCTAssertEqual(picked.count, TextScope.maxChangedParagraphs)
-        XCTAssertTrue(picked.last!.hasPrefix("문단 59"))
-        XCTAssertLessThanOrEqual(picked.reduce(0) { $0 + $1.utf16.count }, TextScope.maxLength)
+        XCTAssertEqual(picked.count, TextScope.maxChangedUnits)
+        XCTAssertTrue(picked.last!.hasPrefix("문단 19"))
     }
 
-    func testWholeModeChunksCoverEveryParagraphExceptForRewrite() {
-        let chunks = texts(long, mode: .whole, level: .polish)
-        XCTAssertGreaterThan(chunks.count, 1)
-        XCTAssertEqual(chunks.joined(separator: "\n"), long)
-        XCTAssertTrue(chunks.allSatisfy { $0.utf16.count <= TextScope.maxLength })
-        XCTAssertEqual(texts(long, mode: .whole, level: .rewrite), [long])
+    func testWholeModeTakesEverySectionEvenForRewrite() {
+        for level in CorrectionLevel.allCases { XCTAssertEqual(texts(long, mode: .whole, level: level), parts) }
     }
 
-    func testPartialCorrectionKeepsOtherChangedParagraphsDirty() {
-        // 두 문단을 바꾸고 하나만 (선택해서) 고친 경우: 나머지 하나는 여전히 바뀐 문단이다
-        var edited = longParagraphs
-        edited[5] = "하나 않 됨"
-        edited[40] = "둘 않 됨"
-        let base = TextScope.baseline(long, adding: ["하나 안 됨"])
-        edited[5] = "하나 안 됨"
-        XCTAssertEqual(texts(edited.joined(separator: "\n"), cursor: 0, baseline: base), ["둘 않 됨"])
+    func testPartialCorrectionKeepsOtherSectionsDirty() {
+        var edited = parts
+        edited[5] = parts[5] + " 하나 안 됨"
+        edited[12] = parts[12] + " 둘 않 됨"
+        let base = TextScope.baseline(long, adding: [edited[5]])
+        XCTAssertEqual(texts(edited.joined(separator: "\n\n"), cursor: 0, baseline: base), [edited[12]])
     }
 
-    func testContextKeepsSurrogatePairsAndExcludesTarget() {
-        let text = String(repeating: "😀", count: 10) + "대상" + "뒤 문장"
-        let r = (text as NSString).range(of: "대상")
-        let c = TextScope.context(around: r, in: text, limit: 5)   // 홀수 → 이모지 중간에서 잘리는 위치
-        XCTAssertEqual(c.before, "😀😀😀")
-        XCTAssertEqual(c.after, "뒤 문장")
+    func testPrecomputeNeverSendsUntouchedSections() {
+        for mode in ScopeMode.allCases {
+            XCTAssertEqual(TextScope.precomputePlan(in: long, cursor: 0, mode: mode, level: .polish, baseline: long), [], "\(mode)")
+        }
+        var edited = parts
+        edited[5] = parts[5] + " 고쳣습니다."
+        let value = edited.joined(separator: "\n\n")
+        let sent = TextScope.precomputePlan(in: value, cursor: 0, mode: .whole, level: .polish, baseline: long)
+        XCTAssertEqual(sent.map { (value as NSString).substring(with: $0) }, [edited[5]])
+        // 커서 섹션 모드: 바뀐 섹션이 커서 밖이면 보내지 않는다
+        XCTAssertEqual(TextScope.precomputePlan(in: value, cursor: 0, mode: .paragraph, level: .polish, baseline: long), [])
+        // 바뀐 곳이 코드뿐이면 커서 섹션을 대신 보내지 않는다
+        XCTAssertEqual(TextScope.precomputePlan(in: long + "\n\n```\nlet x\n```", cursor: 0, mode: .auto, level: .polish, baseline: long), [])
     }
 }
 
@@ -338,6 +330,13 @@ final class CorrectionParserTests: XCTestCase {
         XCTAssertEqual(CorrectionParser.unwrapTextTags(s, original: s), s)
     }
 
+    func testEdgeWhitespaceFollowsOriginal() {
+        XCTAssertEqual(CorrectionParser.matchEdges("\n\n안 지키면\n", original: "않 지키면"), "안 지키면")
+        XCTAssertEqual(CorrectionParser.matchEdges("안 지키면", original: "  않 지키면\n"), "  안 지키면\n")
+        XCTAssertEqual(CorrectionParser.matchEdges("첫 줄\n\n둘째 줄", original: "첫 줄\n\n둘째줄"), "첫 줄\n\n둘째 줄")   // 안쪽은 그대로
+        XCTAssertEqual(CorrectionParser.matchEdges("", original: "글"), "")
+    }
+
     func testNoTagsUnchanged() {
         XCTAssertEqual(CorrectionParser.unwrapTextTags("I have an apple.", original: "I has a apple."), "I have an apple.")
     }
@@ -365,13 +364,13 @@ final class CorrectionParserTests: XCTestCase {
     }
 
     func testUnknownStoredLevelFallsBackToProofread() {
-        let d = UserDefaults.standard, k = CorrectionLevel.defaultsKey
-        let saved = d.object(forKey: k)
-        defer { d.set(saved, forKey: k) }
-        d.set("turbo", forKey: k)
-        XCTAssertEqual(CorrectionLevel.current, .proofread)
-        CorrectionLevel.save(.polish)
-        XCTAssertEqual(CorrectionLevel.current, .polish)
+        // 앱의 실제 설정을 건드리지 않도록 따로 만든 저장소를 쓴다
+        let name = "Fix4meTests.level", d = UserDefaults(suiteName: name)!
+        defer { d.removePersistentDomain(forName: name) }
+        d.set("turbo", forKey: CorrectionLevel.defaultsKey)
+        XCTAssertEqual(CorrectionLevel.load(from: d), .proofread)
+        CorrectionLevel.save(.polish, to: d)
+        XCTAssertEqual(CorrectionLevel.load(from: d), .polish)
     }
 
     func testPlausibility() {

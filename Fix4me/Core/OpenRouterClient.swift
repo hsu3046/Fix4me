@@ -74,8 +74,8 @@ struct OpenRouterClient: Sendable {
     private func request(
         _ text: String, level: CorrectionLevel, before: String, after: String, dictionary: [String]
     ) async throws -> String {
-        // 다시 쓰기는 원문보다 길어질 수 있어 여유를 더 둔다 (한·일 문자는 글자당 토큰이 많다)
-        let maxTokens = min(4096, text.count * 3 + 256)
+        // 추론 토큰도 이 한도에 들어간다 → 답 길이(한·일 문자는 글자당 토큰이 많다)에 생각할 여유를 더한다
+        let maxTokens = min(8192, text.count * 3 + 2048)
         let body: [String: Any] = [
             "model": model,
             "messages": [
@@ -112,7 +112,9 @@ struct OpenRouterClient: Sendable {
         let corrected: String
         do {
             // 모델이 입력 래퍼 <text>…</text> 를 결과에 그대로 옮겨 오는 경우가 있어 벗긴다
-            corrected = CorrectionParser.unwrapTextTags(try CorrectionParser.parse(content), original: text)
+            corrected = CorrectionParser.matchEdges(
+                CorrectionParser.unwrapTextTags(try CorrectionParser.parse(content), original: text), original: text
+            )
         } catch {
             throw CorrectionError.badResponse("JSON 형식 아님")
         }

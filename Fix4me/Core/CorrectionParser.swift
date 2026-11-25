@@ -38,6 +38,17 @@ enum CorrectionParser {
         return inner
     }
 
+    /// 결과의 앞뒤 공백·줄바꿈을 원문과 같게 한다. 모델이 앞뒤에 빈 줄을 붙여 오는 일이 있고, 그대로 쓰면 섹션 사이에 빈 줄이 끼어든다.
+    static func matchEdges(_ corrected: String, original: String) -> String {
+        let core = corrected.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !core.isEmpty else { return corrected }
+        let ws = { (c: Character) in c.isWhitespace }
+        let head = original.prefix(while: ws)
+        guard head.count < original.count else { return corrected }   // 원문이 공백뿐
+        let tail = String(original.reversed().prefix(while: ws).reversed())
+        return head + core + tail
+    }
+
     /// 교정이 아니라 "대답"이나 "번역"을 내놓은 경우를 길이로 거른다.
     /// 짧은 글은 절대 차이, 긴 글은 비율로 판정.
     static func isPlausible(original: String, corrected: String, level: CorrectionLevel = .proofread) -> Bool {
