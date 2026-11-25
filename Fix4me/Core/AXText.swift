@@ -65,30 +65,73 @@ enum AXText {
         return FocusedText(element: element, pid: app.processIdentifier, appName: app.localizedName ?? "앱", value: value, selection: selection)
     }
 
-    /// 미리 교정의 감시용 읽기. 기다리지 않고, 느린 앱에 오래 붙잡히지 않는다. 글 입력란이 아니면 nil.
-    static func peek(_ app: NSRunningApplication, maxCharacters: Int) -> FocusedText? {
+    /// 감시용 읽기의 결과. 안 되는 이유는 진단 기록에만 쓴다 (글 내용은 담지 않는다).
+    enum Peek {
+        case field(FocusedText)
+        case skipped(String)
+    }
+
+    /// 미리 교정의 감시용 읽기. 기다리지 않고, 느린 앱에 오래 붙잡히지 않는다.
+    static func peek(_ app: NSRunningApplication, maxCharacters: Int) -> Peek {
+        guard isTrusted else { return .skipped("권한 없음") }
         // 어느 앱이든 비밀번호 입력 중이면 아무것도 읽지 않는다
-        guard isTrusted, !IsSecureEventInputEnabled() else { return nil }
+        guard !IsSecureEventInputEnabled() else { return .skipped("보안 입력 중") }
         let appEl = AXUIElementCreateApplication(app.processIdentifier)
         AXUIElementSetMessagingTimeout(appEl, 0.2)
-        guard let element = copyElement(appEl, kAXFocusedUIElementAttribute) else { return nil }
+        guard let element = copyElement(appEl, kAXFocusedUIElementAttribute) else { return .skipped("포커스 요소 없음") }
         AXUIElementSetMessagingTimeout(element, 0.2)
 
+        let role = copyString(element, kAXRoleAttribute) ?? "?"
         let subrole = copyString(element, kAXSubroleAttribute)
-        guard subrole != (kAXSecureTextFieldSubrole as String), subrole != (kAXSearchFieldSubrole as String) else { return nil }
-        let role = copyString(element, kAXRoleAttribute)
-        guard role == (kAXTextAreaRole as String) || role == (kAXTextFieldRole as String) else { return nil }
-
+        if subrole == (kAXSecureTextFieldSubrole as String) { return .skipped("비밀번호 칸") }
+        if subrole == (kAXSearchFieldSubrole as String) { return .skipped("검색창") }
+        // 종류 이름이 아니라 글을 쓸 수 있는 요소인지로 판단한다
+        let known = [kAXTextAreaRole, kAXTextFieldRole, kAXComboBoxRole].contains(role)
+        guard known || isSettable(element, kAXSelectedTextAttribute) || isSettable(element, kAXValueAttribute) else {
+            return .skipped("쓸 수 없는 요소 \(role)")
+        }
         // 브라우저의 주소창은 웹 요소가 아니다 → 웹 요소만 본다
-        if let id = app.bundleIdentifier, browsers.contains(id), !hasAttribute(element, "AXDOMClassList") { return nil }
+        if let id = app.bundleIdentifier, browsers.contains(id), !isWeb(element) { return .skipped("브라우저 화면(주소창 등) \(role)") }
 
         // 큰 문서는 값을 복사하기 전에 거른다
         var ref: CFTypeRef?
         if AXUIElementCopyAttributeValue(element, kAXNumberOfCharactersAttribute as CFString, &ref) == .success,
-           let n = ref as? Int, n > maxCharacters { return nil }
-        guard let value = copyString(element, kAXValueAttribute), (value as NSString).length <= maxCharacters else { return nil }
+           let n = ref as? Int, n > maxCharacters { return .skipped("너무 긴 글") }
+        guard let value = copyString(element, kAXValueAttribute) else { return .skipped("글을 읽을 수 없음 \(role)") }
+        guard (value as NSString).length <= maxCharacters else { return .skipped("너무 긴 글") }
         let selection = selectedRange(element) ?? NSRange(location: (value as NSString).length, length: 0)
-        return FocusedText(element: element, pid: app.processIdentifier, appName: app.localizedName ?? "앱", value: value, selection: selection)
+        return .field(FocusedText(element: element, pid: app.processIdentifier, appName: app.localizedName ?? "앱", value: value, selection: selection))
+    }
+
+    private static func isSettable(_ el: AXUIElement, _ attr: String) -> Bool {
+        var ok: DarwinBoolean = false
+        return AXUIElementIsAttributeSettable(el, attr as CFString, &ok) == .success && ok.boolValue
+    }
+
+    /// 섹션의 화면 위치. 글자 위치를 알려 주지 않는 웹 편집기는 안쪽 글 조각들의 위치로 대신한다.
+    static func sectionRect(_ range: NSRange, in field: FocusedText) -> NSRect? {
+        if !isWeb(field.element), let r = screenRect(of: range, in: field.element) { return r }
+        guard isWeb(field.element) else { return nil }
+        return EditorText.union(of: textPieces(field.element), covering: range, in: field.value)
+            ?? screenRect(of: range, in: field.element)
+    }
+
+    private static func textPieces(_ root: AXUIElement, limit: Int = 200) -> [(text: String, rect: CGRect)] {
+        var pieces: [(String, CGRect)] = [], visited = 0
+        func walk(_ el: AXUIElement, _ depth: Int) {
+            guard visited < limit, depth < 12 else { return }
+            visited += 1
+            if copyString(el, kAXRoleAttribute) == (kAXStaticTextRole as String) {
+                if let t = copyString(el, kAXValueAttribute), let f = frame(el) { pieces.append((t, f)) }
+                return
+            }
+            var ref: CFTypeRef?
+            guard AXUIElementCopyAttributeValue(el, kAXChildrenAttribute as CFString, &ref) == .success,
+                  let children = ref as? [AXUIElement] else { return }
+            for c in children { walk(c, depth + 1) }
+        }
+        walk(root, 0)
+        return pieces
     }
 
     private static let chromium: Set<String> = [
@@ -174,33 +217,106 @@ enum AXText {
 
     enum WriteMethod: String { case accessibility, paste }
 
-    /// range 를 text 로 바꾼다. AX 직접 쓰기 → 반영 확인 → 실패 시 붙여넣기 대체.
-    /// expected: 쓰기 후 기대하는 전체 값 (반영 확인용).
-    static func replace(
-        in element: AXUIElement, range: NSRange, with text: String, expected: String
-    ) async -> WriteMethod? {
-        let before = currentValue(element)
-
-        if select(range, in: element),
-           AXUIElementSetAttributeValue(element, kAXSelectedTextAttribute as CFString, text as CFString) == .success {
-            if currentValue(element) == expected { return .accessibility }
-        }
-
-        // 값이 바뀌지 않았을 때만 붙여넣기로 재시도 (부분 반영된 상태에서 또 쓰면 중복된다)
-        guard currentValue(element) == before else {
-            return currentValue(element) == expected ? .accessibility : nil
-        }
-        // ⌘V 는 앞에 있는 앱으로 간다 → 그사이 다른 앱·입력창으로 옮겼으면 쓰지 않는다
-        guard isFocused(element), select(range, in: element) else { return nil }
-        await paste(text)
-        // 붙여넣기는 대상 앱이 비동기로 처리한다 → 잠시 기다린 뒤 확인
-        for _ in 0..<6 {
-            try? await Task.sleep(for: .milliseconds(80))
-            if currentValue(element) == expected { return .paste }
-        }
-        // 일부 웹 에디터는 AXValue 갱신이 늦거나 다르게 보고한다. 바뀌긴 했으면 성공으로 본다.
-        return currentValue(element) != before ? .paste : nil
+    enum WriteResult: Equatable {
+        case done(WriteMethod, EditorText.Mapping)
+        case untouched   // 위치를 확인하지 못했거나 앱이 받아들이지 않아 글이 그대로다
+        case mismatch    // 글이 바뀌었지만 예상과 다르다
     }
+
+    /// edit 를 적용한다. **실제로 선택된 글이 원문과 같은지 확인한 뒤에만** 쓰고, 쓴 뒤의 글이 예상과 같을 때만 성공이다.
+    static func replace(in element: AXUIElement, edit: TextEdit, value: String) async -> WriteResult {
+        let original = (value as NSString).substring(with: edit.range)
+        let expected = (value as NSString).replacingCharacters(in: edit.range, with: edit.text)
+        func state() -> WriteResult? {
+            guard let now = currentValue(element) else { return nil }
+            if EditorText.same(now, expected) { return .done(.paste, .native) }
+            return EditorText.same(now, value) ? .untouched : .mismatch
+        }
+
+        guard let mapping = await selectVerified(edit.range, original: original, value: value, in: element) else { return .untouched }
+
+        // 웹 편집기는 접근성 쓰기를 성공이라 답하고 무시하거나, 자기 모델과 어긋나게 화면만 바꾼다 → 바로 붙여넣기
+        if !isWeb(element),
+           AXUIElementSetAttributeValue(element, kAXSelectedTextAttribute as CFString, edit.text as CFString) == .success {
+            // 앱이 늦게 반영할 수 있다 → 기다렸다가 판단한다 (서둘러 또 쓰면 두 번 들어간다)
+            for _ in 0..<10 {
+                if let r = state(), r != .untouched { return r == .mismatch ? .mismatch : .done(.accessibility, mapping) }
+                try? await Task.sleep(for: .milliseconds(40))
+            }
+            guard await selectVerified(edit.range, original: original, value: value, in: element) != nil else { return .untouched }
+        }
+
+        // ⌘V 는 앞에 있는 앱으로 간다 → 그사이 다른 앱·입력창으로 옮겼으면 쓰지 않는다
+        guard isFocused(element) else { return .untouched }
+        await paste(edit.text)
+        // 편집기가 글을 여러 번에 나눠 고치는 동안의 중간 상태를 결과로 보지 않도록 끝까지 기다린다
+        var last = state()
+        for _ in 0..<12 {
+            if case .done = last { return .done(.paste, mapping) }
+            try? await Task.sleep(for: .milliseconds(80))
+            last = state()
+        }
+        if case .done = last { return .done(.paste, mapping) }
+        return last ?? .mismatch
+    }
+
+    /// range 를 선택하고, 선택된 글이 원문과 같은지 확인한다. 줄 전체로 위치를 맞춘 뒤(짧은 글자는 엉뚱한 곳과
+    /// 우연히 같을 수 있다) 실제 범위를 다시 확인한다. 하나라도 다르면 nil.
+    private static func selectVerified(
+        _ range: NSRange, original: String, value: String, in element: AXUIElement
+    ) async -> EditorText.Mapping? {
+        guard range.length > 0 else { return nil }
+        let line = EditorText.lineRange(around: range, in: value)
+        let lineText = (value as NSString).substring(with: line)
+        for start in [EditorText.Mapping.native, .noNewlines(extra: 0)] {
+            guard let mapping = await align(line, lineText, from: start, value: value, in: element) else { continue }
+            if select(mapping.map(range, in: value), in: element), await selection(in: element, becomes: original) { return mapping }
+        }
+        return nil
+    }
+
+    /// 줄을 선택해 읽어 보고, 어긋난 만큼 옮겨 가며 맞춘다
+    private static func align(
+        _ line: NSRange, _ lineText: String, from start: EditorText.Mapping, value: String, in element: AXUIElement
+    ) async -> EditorText.Mapping? {
+        var mapping = start
+        for _ in 0..<8 {
+            let target = mapping.map(line, in: value)
+            guard target.location >= 0 else { return nil }
+            let before = copyString(element, kAXSelectedTextAttribute)
+            guard select(target, in: element) else { return nil }
+            let got = await settledSelection(in: element, changedFrom: before, wanted: lineText)
+            if EditorText.isSelection(got, of: lineText) { return mapping }
+            guard case let .noNewlines(extra) = mapping, let shift = EditorText.shift(from: got, to: lineText) else { return nil }
+            mapping = .noNewlines(extra: extra + shift)
+        }
+        return nil
+    }
+
+    /// 선택이 반영될 때까지 기다려 읽는다: 원하던 글이면 바로, 아니면 이전 선택에서 바뀌어 두 번 같을 때
+    private static func settledSelection(in element: AXUIElement, changedFrom before: String?, wanted: String) async -> String {
+        var last: String?
+        for n in 0..<14 {
+            let now = copyString(element, kAXSelectedTextAttribute) ?? ""
+            if EditorText.isSelection(now, of: wanted) { return now }
+            if now == last, now != before || n >= 10 { return now }
+            last = now
+            try? await Task.sleep(for: .milliseconds(30))
+        }
+        return last ?? ""
+    }
+
+    /// 선택이 비동기로 반영되는 앱(Chrome 등)을 기다리며 확인한다
+    private static func selection(in element: AXUIElement, becomes wanted: String) async -> Bool {
+        for _ in 0..<12 {
+            if let now = copyString(element, kAXSelectedTextAttribute), EditorText.isSelection(now, of: wanted) { return true }
+            try? await Task.sleep(for: .milliseconds(30))
+        }
+        return false
+    }
+
+    /// 웹(브라우저·Electron) 안의 요소인지
+    static func isWeb(_ element: AXUIElement) -> Bool { hasAttribute(element, "AXDOMClassList") }
 
     @discardableResult
     static func select(_ range: NSRange, in element: AXUIElement) -> Bool {

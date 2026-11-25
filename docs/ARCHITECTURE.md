@@ -13,7 +13,7 @@
   → CorrectionParser        JSON 추출 + 길이 비율로 "대답/번역" 응답 차단
   → 스냅샷 대조              기다리는 동안 문단이 바뀌었으면 쓰지 않음
   → TextDiff.edits          줄 수가 같으면 바뀐 줄만, 다르면 한 구간 (안 바뀐 줄의 서식·멘션 보존)
-  → AXText.replace()        뒤에서부터. AX 직접 쓰기 → 값 확인 → 안 바뀌었으면 붙여넣기(포커스 재확인, 클립보드 복구)
+  → AXText.replace()        뒤에서부터. 줄 선택으로 위치를 맞춤 → **선택된 글 = 원문** 확인 → 쓰기(웹은 붙여넣기) → 글 전체가 예상과 같을 때만 성공
   → HUD                     텍스트 아래 "N곳 고쳤어요 · 0.9초 · 않 → 안"
 ⌃⌥Z → 같은 입력창·같은 자리에 교정 결과가 그대로 있을 때만 원문으로 되돌림
 ```
@@ -36,6 +36,7 @@
 | `Fix4me/Core/Evaluation.swift`, `App/DevCommands.swift`, `eval/cases.jsonl` | 채점 기준과 개발용 명령줄 |
 | `Fix4me/Core/PrecomputeFilter.swift`, `Prefs.swift` | 보내지 않을 글 판정, 설정값·제외 앱 |
 | `Fix4me/Core/Keychain.swift` | API 키 저장 (로그인 키체인) |
+| `Fix4me/Core/EditorText.swift` | 입력창마다 다른 글·위치 표현 맞추기(줄바꿈·빈 줄 보정, 끼워 넣기 앵커, 조각 위치 합치기) |
 | `Fix4me/Core/Sectioner.swift` | 규칙만으로 섹션 나누기: 줄 종류 → 경계 3단계 → 크기 맞추기, 참고 문맥(가까운 제목 + 앞 덩어리) |
 | `Fix4me/Core/TextScope.swift`, `TextDiff.swift`, `CorrectionParser.swift` | 순수 로직 (단위 테스트 대상) |
 | `Fix4me/Core/CorrectionLevel.swift` | 교정 강도(교정·다듬기·다시 쓰기): 프롬프트 지시·길이 범위·저장 |
@@ -70,6 +71,10 @@ dist/Fix4me.app/Contents/MacOS/Fix4me --evaluate-history                      # 
 - 일부 문단만 고치면 그 문단만 처리된 것으로 본다 (`TextScope.baseline(_:adding:)`).
 
 ## 알려진 함정
+
+- **웹 편집기(contenteditable·Draft.js)의 위치** (시험용 Chromium 실측): 글에는 줄바꿈을 넣어 주면서 위치에는 세지 않고, 빈 줄은 글에서 빼면서 위치에는 센다. 접근성 쓰기는 성공이라 답하고 무시한다(뒤에 있는 창에서 확인). 글자 위치(BoundsForRange)는 nil. → 선택된 글을 읽어 확인하고, 글 조각의 위치로 막대를 그린다.
+  - 빈 줄이 글에서 빠지므로 **웹 편집기에서는 빈 줄로 섹션이 나뉘지 않는다.**
+- 막대가 안 뜨는 이유: `/usr/bin/log show --last 1d --predicate 'subsystem == "com.aib.fix4me" AND category == "status"'` (앱과 이유만, 글 내용 없음)
 
 - **손쉬운 사용을 켰는데 "필요함"이 남는다는 보고 (2026-11-25, 원인 미확정)**: 항목 재허용·앱 재시작 뒤 정상. 실행 중 프로세스도 tccd 에서 허용 응답을 받았으므로 "프로세스가 옛 값을 붙잡는다"는 설명은 맞지 않는다.
 - Dock 아이콘 표시(일반 앱): 메뉴 막대 아이콘은 노치·메뉴 막대 정리 앱에 가려질 수 있어서. 다시 열기(Dock 클릭·Spotlight)는 설정 창을 띄운다.

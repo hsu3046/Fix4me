@@ -28,6 +28,8 @@ final class Precomputer {
     private let service: CorrectionService
     private let indicator = IndicatorController()
     private let log = Logger(subsystem: "com.aib.fix4me", category: "precompute")
+    private let statusLog = Logger(subsystem: "com.aib.fix4me", category: "status")
+    private var lastNote = ""
     private var session: Session?
     private var woken: Set<pid_t> = []
     private var sent: [Date] = []
@@ -85,8 +87,14 @@ final class Precomputer {
         guard Prefs.precompute, let app = NSWorkspace.shared.frontmostApplication,
               app.processIdentifier != ProcessInfo.processInfo.processIdentifier,
               !Prefs.excluded.contains(app.bundleIdentifier ?? "") else { return reset() }
-        guard let field = AXText.peek(app, maxCharacters: TextScope.wholeMaxLength) else {
-            if woken.insert(app.processIdentifier).inserted { AXText.wake(app) }
+        let id = app.bundleIdentifier ?? "?"
+        // 입력하기 전에 깨워 둔다 (늦게 깨우면 그동안 쓴 글을 원래 있던 글로 본다)
+        if woken.insert(app.processIdentifier).inserted { AXText.wake(app) }
+        let field: FocusedText
+        switch AXText.peek(app, maxCharacters: TextScope.wholeMaxLength) {
+        case let .field(f): field = f
+        case let .skipped(reason):
+            note(reason, app: id)
             indicator.hide()
             return
         }
@@ -94,6 +102,7 @@ final class Precomputer {
         // 새 입력창: 원래 있던 글은 보내지 않는다. 사용자가 바꾼 뒤부터 본다.
         guard var s = session, CFEqual(s.element, field.element) else {
             session = Session(element: field.element, baseline: field.value, lastValue: field.value, lastChange: .now, requested: nil)
+            note("새 입력창", app: id)
             indicator.hide()
             return
         }
@@ -113,7 +122,10 @@ final class Precomputer {
         let targets = TextScope.precomputePlan(
             in: field.value, cursor: field.selection.location, mode: scope, level: level, baseline: s.baseline
         ).filter { $0.length <= TextScope.maxLength }
-        guard !targets.isEmpty else { return indicator.hide() }
+        guard !targets.isEmpty else {
+            note("포커스 뒤 바뀐 섹션 없음", app: id)
+            return indicator.hide()
+        }
 
         let request = Request(value: field.value, level: level, scope: scope, dictionary: Prefs.dictionary)
         if s.requested != request {
@@ -121,7 +133,7 @@ final class Precomputer {
             session = s
             send(targets, in: field.value, level: level)
         }
-        showIndicator(targets, field: field, level: level)
+        showIndicator(targets, field: field, level: level, app: id)
     }
 
     private func reset() {
@@ -186,19 +198,36 @@ final class Precomputer {
 
     // MARK: - 표시
 
-    private func showIndicator(_ targets: [NSRange], field: FocusedText, level: CorrectionLevel) {
+    private func showIndicator(_ targets: [NSRange], field: FocusedText, level: CorrectionLevel, app: String) {
         guard Prefs.indicator else { return indicator.hide() }
         let ns = field.value as NSString
         let items = targets.compactMap { r -> IndicatorController.Item? in
             let text = ns.substring(with: r)
             guard !isIgnored(text, in: field.element),
                   let fixed = service.cached(text, level: level), fixed != text else { return nil }
-            return .init(range: r, original: text, corrected: fixed, level: level, rect: AXText.screenRect(of: r, in: field.element))
+            return .init(range: r, original: text, corrected: fixed, level: level, rect: AXText.sectionRect(r, in: field))
         }
-        guard !items.isEmpty else { return indicator.hide() }
-        indicator.update(.init(
-            items: items, visible: AXText.visibleFrame(field.element), caret: AXText.caretRect(field), level: level
-        ))
+        guard !items.isEmpty else {
+            let texts = targets.map { ns.substring(with: $0) }
+            if texts.contains(where: { service.isInFlight($0, level: level) }) { note("교정 기다리는 중", app: app) }
+            else if texts.allSatisfy({ !PrecomputeFilter.isWorthChecking($0) }) { note("보내지 않는 글(짧거나 키·주소처럼 보임)", app: app) }
+            else if texts.allSatisfy({ service.cached($0, level: level) != nil }) { note("고칠 곳 없음 또는 무시함", app: app) }
+            else { note("교정 결과 없음(실패·한도)", app: app) }
+            return indicator.hide()
+        }
+        let visible = AXText.visibleFrame(field.element), caret = AXText.caretRect(field)
+        let bars = items.filter { IndicatorLayout.bar(text: $0.rect, visible: visible) != nil }.count
+        note(bars > 0 ? "막대 표시" : (visible != nil || caret != nil ? "배지 표시" : "표시할 위치를 모름"), app: app)
+        indicator.update(.init(items: items, visible: visible, caret: caret, level: level))
+    }
+
+    /// 표시 상태가 바뀔 때만 이유를 시스템 기록에 남긴다. 글 내용은 남기지 않는다.
+    ///   /usr/bin/log show --last 1d --predicate 'subsystem == "com.aib.fix4me" AND category == "status"'
+    private func note(_ status: String, app: String) {
+        let line = "\(app) — \(status)"
+        guard line != lastNote else { return }
+        lastNote = line
+        statusLog.notice("\(line, privacy: .public)")
     }
 
     /// 미리보기에서 "무시"한 글인지. 글을 바꾸면 다시 살아난다.

@@ -152,7 +152,7 @@ typing pauses ─► read focused field ─► split into sections (rules, no AI
 
 - **Sections** use three boundary strengths. Dividers, headings, two blank lines and skipped blocks always split; a single blank line or a list edge usually does; a single line break does only when that text uses line breaks as paragraphs.
 - **Rewrite runs in two steps** (proofread, then rewrite). In one step, a typo of "didn't fix" became "completely fixed" in 9 of 14 tries on one test sentence; in two steps, 0 of 14.
-- **Writing** tries Accessibility first and falls back to paste, after checking that the field is still focused, and restores your clipboard.
+- **Writing** never trusts positions alone: it selects the text, checks that the selection is exactly the original, and only then replaces it. If it can't confirm the place, nothing is written. If the result isn't what was expected, it tells you to press `⌘Z`. Pasting restores your clipboard afterwards.
 
 More in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and [docs/DECISIONS.md](docs/DECISIONS.md) (Korean).
 
@@ -195,7 +195,8 @@ Language model output varies, so `--evaluate` reports counts rather than pass or
 
 ## 🚧 Known Limitations
 
-- Used so far mainly in TextEdit and Slack. Other apps, and editors such as Google Docs, may not expose their text.
+- Used so far mainly in TextEdit, Slack and web text boxes. Other apps, and editors such as Google Docs, may not expose their text.
+- Many web editors don't report blank lines, so blank lines don't separate sections there.
 - Editors that use a separate field for each block may look like one section per block.
 - *Polish* has turned `12/05` into `December 5`, guessing the date order.
 - *Rewrite* can add small words or shift nuance.

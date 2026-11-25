@@ -103,7 +103,7 @@ final class CorrectionController {
             return
         }
         let elapsed = ContinuousClock.now - started
-        log.info("corrected level=\(level.rawValue) targets=\(targets.count) in \(elapsed.seconds, format: .fixed(precision: 2))s")
+        log.info("corrected level=\(level.rawValue, privacy: .public) targets=\(targets.count) in \(elapsed.seconds, format: .fixed(precision: 2))s")
 
         await finish(field: field, targets: targets, originals: originals, corrected: corrected, level: level,
                      seconds: elapsed.seconds, anchor: anchor)
@@ -117,7 +117,7 @@ final class CorrectionController {
             defer { busy = false }
             // 미리보기를 띄운 뒤 글이나 입력창이 바뀌지 않았는지 확인
             guard AXText.isFocused(element), let app = NSWorkspace.shared.frontmostApplication,
-                  let field = AXText.peek(app, maxCharacters: TextScope.wholeMaxLength), CFEqual(field.element, element),
+                  case let .field(field) = AXText.peek(app, maxCharacters: TextScope.wholeMaxLength), CFEqual(field.element, element),
                   NSMaxRange(item.range) <= (field.value as NSString).length,
                   (field.value as NSString).substring(with: item.range) == item.original else {
                 hud.show(.error("내용이 바뀌어 적용하지 않았어요"), near: item.rect)
@@ -148,16 +148,26 @@ final class CorrectionController {
         }
 
         // 기다리는 동안 글이 바뀌었으면 옛 결과로 덮어쓰지 않는다 (스냅샷 대조)
-        guard let latest = AXText.currentValue(field.element), latest == field.value else {
+        guard let latest = AXText.currentValue(field.element), EditorText.same(latest, field.value) else {
             hud.show(.error("기다리는 동안 내용이 바뀌어 취소했어요"), near: anchor)
             return
         }
 
         precomputer.suspended = true
         defer { precomputer.suspended = false }
-        let applied = await write(edits, to: field.element, value: latest)
+        let applied = await write(edits, to: field.element, value: field.value)
+        guard !applied.mismatch else {
+            // 예상과 다른 글이 들어갔다: 되돌리기 위치를 믿을 수 없으므로 앱의 실행 취소를 안내하고, 어긋난 글을 다시 보내지 않는다
+            lastEdit = nil
+            if let now = AXText.currentValue(field.element) {
+                precomputer.didWrite(now, before: now, processed: [now], to: field.element)
+            }
+            log.notice("write mismatch app=\(NSRunningApplication(processIdentifier: field.pid)?.bundleIdentifier ?? "?", privacy: .public)")
+            hud.show(.error("예상과 다르게 들어갔어요 — ⌘Z 로 되돌려 주세요"), near: anchor)
+            return
+        }
         guard !applied.edits.isEmpty else {
-            hud.show(.error("\(field.appName)에 쓰지 못했어요"), near: anchor)
+            hud.show(.error("\(field.appName)에서 고칠 위치를 확인하지 못해 쓰지 않았어요"), near: anchor)
             return
         }
         if applied.edits.count == edits.count, let now = AXText.currentValue(field.element) {
@@ -169,7 +179,7 @@ final class CorrectionController {
             history.record(original: $0, corrected: $1, level: level, app: app, outcome: .applied)
         }
         lastEdit = LastEdit(
-            element: field.element, undo: TextDiff.inverse(of: applied.edits, in: latest), inserted: applied.edits.map(\.text),
+            element: field.element, undo: TextDiff.inverse(of: applied.edits, in: field.value), inserted: applied.edits.map(\.text),
             originals: originals, history: recorded
         )
         guard applied.edits.count == edits.count else {
@@ -177,8 +187,8 @@ final class CorrectionController {
             return
         }
 
-        // 커서를 원래 있던 글자 옆으로 (붙여넣기 경로는 앱이 이미 옮겨 둠)
-        if applied.method == .accessibility {
+        // 커서를 원래 있던 글자 옆으로. 읽어 온 커서 위치도 앱의 세는 방식이므로 글 기준과 같을 때만 옮긴다
+        if applied.mapping == .native {
             let caret = TextDiff.shift(NSMaxRange(field.selection), by: edits)
             AXText.select(NSRange(location: caret, length: 0), in: field.element)
         }
@@ -203,20 +213,33 @@ final class CorrectionController {
         return results
     }
 
+    private struct Written {
+        var edits: [TextEdit] = []          // 확인된 것만
+        var method = AXText.WriteMethod.accessibility
+        var mapping = EditorText.Mapping.native
+        var mismatch = false                // 예상과 다른 글이 들어갔다
+    }
+
     /// 뒤에서부터 써서 앞쪽 위치가 밀리지 않게 한다. 매번 지금 글이 예상과 같은지 확인하고, 다르면 멈춘다.
-    private func write(
-        _ edits: [TextEdit], to element: AXUIElement, value: String
-    ) async -> (edits: [TextEdit], method: AXText.WriteMethod) {
-        var current = value, done: [TextEdit] = [], method = AXText.WriteMethod.accessibility
-        for edit in edits.reversed() {
-            guard AXText.currentValue(element) == current else { break }
-            let expected = (current as NSString).replacingCharacters(in: edit.range, with: edit.text)
-            guard let m = await AXText.replace(in: element, range: edit.range, with: edit.text, expected: expected) else { break }
-            if m == .paste { method = .paste }
-            done.insert(edit, at: 0)
-            current = expected
+    private func write(_ edits: [TextEdit], to element: AXUIElement, value: String) async -> Written {
+        var result = Written(), current = value
+        for raw in edits.reversed() {
+            guard let now = AXText.currentValue(element), EditorText.same(now, current) else { break }
+            let edit = EditorText.anchored(raw, in: current)
+            switch await AXText.replace(in: element, edit: edit, value: current) {
+            case let .done(method, mapping):
+                if method == .paste { result.method = .paste }
+                result.mapping = mapping
+                result.edits.insert(edit, at: 0)
+                current = (current as NSString).replacingCharacters(in: edit.range, with: edit.text)
+            case .untouched:
+                return result
+            case .mismatch:
+                result.mismatch = true
+                return result
+            }
         }
-        return (done, method)
+        return result
     }
 
     // MARK: - 되돌리기
@@ -241,7 +264,7 @@ final class CorrectionController {
         if let now = AXText.currentValue(edit.element) {
             precomputer.didWrite(now, before: value, processed: edit.originals, to: edit.element)
         }
-        let ok = applied.edits.count == edit.undo.count
+        let ok = !applied.mismatch && applied.edits.count == edit.undo.count
         if ok { history.update(edit.history, outcome: .reverted) }
         hud.show(ok ? .reverted : .error("다 되돌리지 못했어요 — ⌘Z 를 써 주세요"),
                  near: edit.undo.first.flatMap { AXText.screenRect(of: $0.range, in: edit.element) })

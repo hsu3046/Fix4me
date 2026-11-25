@@ -312,6 +312,85 @@ final class EvaluationTests: XCTestCase {
     }
 }
 
+final class EditorTextTests: XCTestCase {
+    private let text = "브런치 블로그 하시는 분 계신가요?\nX는 빠르고 재밋지만,\n저는 좋슴니다."
+
+    /// 줄바꿈을 세지 않는 편집기에서 실제로 잡히는 글
+    private func webSelection(_ r: NSRange) -> String { (text.replacingOccurrences(of: "\n", with: "") as NSString).substring(with: r) }
+
+    func testMappingMatchesMeasuredWebEditors() {
+        let ns = text as NSString
+        // 보정하지 않으면 실측과 같이 한 글자씩 밀린다
+        XCTAssertEqual(webSelection(ns.range(of: "재밋")), "밋지")
+        for w in ["계신가요", "재밋", "좋슴"] {
+            XCTAssertEqual(webSelection(EditorText.Mapping.noNewlines(extra: 0).map(ns.range(of: w), in: text)), w)
+            XCTAssertEqual(EditorText.Mapping.native.map(ns.range(of: w), in: text), ns.range(of: w))
+        }
+        // 줄을 걸치는 범위
+        let span = ns.range(of: "재밋지만,\n저는")
+        XCTAssertEqual(webSelection(EditorText.Mapping.noNewlines(extra: 0).map(span, in: text)), "재밋지만,저는")
+    }
+
+    func testShiftFromMeasuredSelections() {
+        // 빈 줄을 위치에만 세는 편집기에서 실제로 잡힌 글
+        XCTAssertEqual(EditorText.shift(from: ".I has a apple 😀 her", to: "I has a apple 😀 here"), 1)
+        XCTAssertEqual(EditorText.shift(from: "\nㅋㅋㅋ ㅋㅋㅋ 저는 정말 좋슴니다", to: "ㅋㅋㅋ ㅋㅋㅋ 저는 정말 좋슴니다."), 1)
+        XCTAssertEqual(EditorText.shift(from: "s a apple 😀 here", to: "I has a apple 😀 here"), -4)   // 너무 뒤를 잡음
+        XCTAssertNil(EditorText.shift(from: "전혀 다른 글", to: "I has a apple"))
+        XCTAssertNil(EditorText.shift(from: "", to: "글자"))
+        // 옮긴 만큼 실제 위치도 움직인다
+        XCTAssertEqual(EditorText.Mapping.noNewlines(extra: 2).map(NSRange(location: 5, length: 1), in: "가나\n다라마"), NSRange(location: 6, length: 1))
+    }
+
+    func testSelectionMustEqualTheWantedText() {
+        XCTAssertTrue(EditorText.isSelection("재밋", of: "재밋"))
+        XCTAssertFalse(EditorText.isSelection("밋지", of: "재밋"))
+        XCTAssertFalse(EditorText.isSelection("", of: "재밋"))
+        XCTAssertTrue(EditorText.isSelection("가\u{00A0}나", of: "가 나"))
+        XCTAssertTrue(EditorText.isSelection("가\n\n나", of: "가\n나"))     // 줄 사이를 다르게 잇는 앱
+        XCTAssertFalse(EditorText.isSelection("가\n다", of: "가\n나"))
+    }
+
+    func testSameIgnoresOnlyRepresentation() {
+        XCTAssertTrue(EditorText.same("가\r\n나\n", "가\n나"))
+        XCTAssertTrue(EditorText.same("가\u{00A0}나", "가 나"))
+        XCTAssertFalse(EditorText.same("가 나", "가나"))
+        XCTAssertFalse(EditorText.same("재밌미있지만", "재미있지만"))   // 신고된 깨진 글
+    }
+
+    func testLineRange() {
+        let ns = text as NSString
+        XCTAssertEqual(ns.substring(with: EditorText.lineRange(around: ns.range(of: "재밋"), in: text)), "X는 빠르고 재밋지만,")
+        XCTAssertEqual(ns.substring(with: EditorText.lineRange(around: ns.range(of: "재밋지만,\n저는"), in: text)), "X는 빠르고 재밋지만,\n저는 좋슴니다.")
+    }
+
+    func testInsertionsAreAnchoredToANeighbourOnTheSameLine() {
+        func check(_ t: String, at: Int, _ ins: String) {
+            let e = TextEdit(range: NSRange(location: at, length: 0), text: ins)
+            let a = EditorText.anchored(e, in: t)
+            XCTAssertGreaterThan(a.range.length, 0)
+            XCTAssertFalse((t as NSString).substring(with: a.range).contains("\n"))
+            XCTAssertEqual(TextDiff.apply([a], to: t), TextDiff.apply([e], to: t))
+        }
+        check("a apple", at: 1, "n"); check("가\n나", at: 2, "X"); check("가\n나", at: 1, "X"); check("😀끝", at: 2, "!"); check("나", at: 0, "가")
+        let blank = TextEdit(range: NSRange(location: 1, length: 0), text: "x")
+        XCTAssertEqual(EditorText.anchored(blank, in: "\n\n"), blank)                                    // 붙을 글자가 없으면 그대로(쓰기에서 거절)
+        let change = TextEdit(range: NSRange(location: 0, length: 1), text: "b")
+        XCTAssertEqual(EditorText.anchored(change, in: "a"), change)
+    }
+
+    func testSectionRectComesFromTheRightPieces() {
+        let t = "같은 줄\n같은 줄\n끝"
+        let pieces: [(text: String, rect: CGRect)] = [
+            ("같은 줄", CGRect(x: 10, y: 80, width: 50, height: 20)), ("같은 줄", CGRect(x: 10, y: 60, width: 50, height: 20)),
+            ("끝", CGRect(x: 10, y: 40, width: 20, height: 20)),
+        ]
+        XCTAssertEqual(EditorText.union(of: pieces, covering: NSRange(location: 5, length: 4), in: t), pieces[1].rect)   // 둘째 "같은 줄"
+        XCTAssertEqual(EditorText.union(of: pieces, covering: NSRange(location: 0, length: 9), in: t), CGRect(x: 10, y: 60, width: 50, height: 40))
+        XCTAssertNil(EditorText.union(of: [], covering: NSRange(location: 0, length: 3), in: t))
+    }
+}
+
 final class RetryTests: XCTestCase {
     func testEmptyResponseIsRetriedOnceOnly() async {
         var calls = 0
