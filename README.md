@@ -31,7 +31,7 @@ You write to people in three languages, and every message costs you a second loo
 ## ✨ What It Does
 
 - **Fixes text where you type** — Press `⌃⌥F` with your cursor in a text field; no copying, no extra window.
-- **Prepares fixes while you pause** — About a second after you stop typing, a correction is prepared in the background so the shortcut can apply it without waiting.
+- **Prepares fixes while you pause** — Moments after you stop typing, a correction is prepared in the background so the shortcut can apply it without waiting.
 - **Shows what will change** — A thin bar marks each section that can be improved. Hover to see the original struck through beside the new text.
 - **Lets you choose how far to go** — *Proofread* fixes mistakes, *Polish* smooths awkward wording, *Rewrite* restructures for clarity.
 - **Works in sections, not walls of text** — Headings, dividers, blank lines, lists and line-break habits are recognised by plain rules, so only the part you changed is sent.

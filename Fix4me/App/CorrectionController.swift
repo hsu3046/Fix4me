@@ -73,7 +73,7 @@ final class CorrectionController {
         )
         // 미리보기에서 무시한 문단은 뺀다 (직접 선택한 글은 예외)
         if field.selection.length == 0, !targets.isEmpty {
-            targets.removeAll { precomputer.isIgnored(value.substring(with: $0), in: field.element) }
+            targets.removeAll { precomputer.isIgnored(value.substring(with: $0), level: level, in: field.element) }
             if targets.isEmpty {
                 hud.show(.error("무시한 글이에요 — 고치려면 선택하고 다시 눌러 주세요"), near: AXText.caretRect(field))
                 return

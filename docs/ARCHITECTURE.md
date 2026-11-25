@@ -27,13 +27,14 @@
 | `Fix4me/Core/AXText.swift` | Accessibility 읽기·쓰기·좌표, 붙여넣기 대체 경로 |
 | `Fix4me/Core/HotKeyCenter.swift` | Carbon `RegisterEventHotKey` 래퍼 |
 | `Fix4me/Core/OpenRouterClient.swift` | 교정 요청 1회, 오류 원문(status·metadata.raw) 보존 |
-| `Fix4me/App/Precomputer.swift` | 미리 교정: 0.3초마다 감시, 0.9초 멈추면 요청, 표시 (분당 30건 상한, 오류 시 쉼) |
+| `Fix4me/App/Precomputer.swift` | 미리 교정: 0.3초마다 감시, 0.6초 멈추면 요청, 표시 (분당 30건 상한, 오류 시 쉼) |
 | `Fix4me/App/CorrectionService.swift`, `Core/CorrectionCache.swift` | 결과 캐시(메모리, 300개)와 진행 중 요청 공유 |
 | `Fix4me/Core/CorrectionPipeline.swift` | 강도별 호출 순서. 다시 쓰기는 교정 → 다시 쓰기 (교정 결과는 캐시 공유, 분당 상한에는 2건으로 셈) |
 | `Fix4me/UI/Indicator.swift`, `DiffText.swift`, `Core/IndicatorLayout.swift` | 고칠 문단 왼쪽 막대(위치를 모르면 모서리 배지), 롤오버 미리보기(원문 취소선 + 고친 글, 적용/무시) |
 | `Fix4me/Core/PersonalDictionary.swift` | 개인 사전: 프롬프트 지시 + 어긴 줄은 원문으로 |
 | `Fix4me/Core/History.swift`, `UI/HistoryView.swift` | 교정 기록(기본 꺼짐, 이 Mac 에만, 30일)과 보기 창 |
 | `Fix4me/Core/Evaluation.swift`, `App/DevCommands.swift`, `eval/cases.jsonl` | 채점 기준과 개발용 명령줄 |
+| `Fix4me/Core/FieldMemory.swift` | 최근 입력창 20개의 상태(메모리 전용)와 사용자의 입력/다른 글이 들어옴 구별 |
 | `Fix4me/Core/PrecomputeFilter.swift`, `Prefs.swift` | 보내지 않을 글 판정, 설정값·제외 앱 |
 | `Fix4me/Core/Keychain.swift` | API 키 저장 (로그인 키체인) |
 | `Fix4me/Core/EditorText.swift` | 입력창마다 다른 글·위치 표현 맞추기(줄바꿈·빈 줄 보정, 끼워 넣기 앵커, 조각 위치 합치기) |
@@ -65,7 +66,7 @@ dist/Fix4me.app/Contents/MacOS/Fix4me --evaluate-history                      # 
 
 ## 미리 교정 규칙
 
-- 입력창에 **원래 있던 글은 보내지 않는다.** 포커스를 얻은 때의 글이 기준이고, 사용자가 바꾼 뒤부터 본다.
+- 입력창에 **원래 있던 글은 보내지 않는다.** 포커스를 얻은 때의 글이 기준이고, 사용자가 바꾼 뒤부터 본다. 다른 앱에 다녀와도 기준을 기억한다. 같은 입력창에 다른 글이 통째로 들어오면(다른 메모·초안) 원래 있던 글로 본다.
 - 보내지 않음: 비밀번호 입력(시스템 보안 입력 포함), 검색창, 브라우저 주소창, API 키처럼 보이는 글, 띄어쓰기 없는 영숫자 한 덩어리, 제외 앱(기본: 터미널·비밀번호 관리자·코드 편집기).
 - 코드 블록·표·인용·구분선·주소만 있는 줄·서명은 섹션에서 빠지므로 보내지도 고치지도 않는다 (직접 선택하면 예외).
 - 일부 문단만 고치면 그 문단만 처리된 것으로 본다 (`TextScope.baseline(_:adding:)`).

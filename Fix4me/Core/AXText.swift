@@ -71,6 +71,8 @@ enum AXText {
         case skipped(String)
     }
 
+    static let noFocusReason = "포커스 요소 없음"
+
     /// 미리 교정의 감시용 읽기. 기다리지 않고, 느린 앱에 오래 붙잡히지 않는다.
     static func peek(_ app: NSRunningApplication, maxCharacters: Int) -> Peek {
         guard isTrusted else { return .skipped("권한 없음") }
@@ -78,7 +80,7 @@ enum AXText {
         guard !IsSecureEventInputEnabled() else { return .skipped("보안 입력 중") }
         let appEl = AXUIElementCreateApplication(app.processIdentifier)
         AXUIElementSetMessagingTimeout(appEl, 0.2)
-        guard let element = copyElement(appEl, kAXFocusedUIElementAttribute) else { return .skipped("포커스 요소 없음") }
+        guard let element = copyElement(appEl, kAXFocusedUIElementAttribute) else { return .skipped(noFocusReason) }
         AXUIElementSetMessagingTimeout(element, 0.2)
 
         let role = copyString(element, kAXRoleAttribute) ?? "?"
@@ -147,6 +149,13 @@ enum AXText {
         if let id = app.bundleIdentifier, chromium.contains(id) {
             AXUIElementSetAttributeValue(appEl, "AXEnhancedUserInterface" as CFString, kCFBooleanTrue)
         }
+    }
+
+    /// 보통 방식으로 안 읽히는 앱에만 쓴다 (창 크기 조절이 어색해지는 앱이 있다)
+    static func wakeHarder(_ app: NSRunningApplication) {
+        let appEl = AXUIElementCreateApplication(app.processIdentifier)
+        AXUIElementSetMessagingTimeout(appEl, 0.2)
+        AXUIElementSetAttributeValue(appEl, "AXEnhancedUserInterface" as CFString, kCFBooleanTrue)
     }
 
     /// 커서의 화면 위치. 글 끝처럼 글자가 없는 자리면 바로 앞 글자 기준.

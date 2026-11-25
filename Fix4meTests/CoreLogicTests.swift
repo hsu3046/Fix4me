@@ -391,6 +391,65 @@ final class EditorTextTests: XCTestCase {
     }
 }
 
+final class FieldMemoryTests: XCTestCase {
+    private func state(_ t: String) -> FieldMemory<Int>.State { .init(baseline: t, lastValue: t, lastChange: .distantPast) }
+
+    func testFieldsAreRememberedIndependently() {
+        var m = FieldMemory<Int>(capacity: 20, same: ==)
+        m[1] = state("chrome"); m[2] = state("claude")       // 다른 앱에 다녀와도
+        XCTAssertEqual(m[1]?.baseline, "chrome")              // 쓰던 입력창의 기준이 남는다
+        m[1]?.ignored.insert("x")
+        XCTAssertEqual(m[1]?.ignored, ["x"]); XCTAssertEqual(m[2]?.ignored, [])
+    }
+
+    func testOldestIsForgottenFirstAndUseRefreshes() {
+        var m = FieldMemory<Int>(capacity: 2, same: ==)
+        m[1] = state("a"); m[2] = state("b")
+        m[1] = m[1]                                           // 다시 씀 → 최근
+        m[3] = state("c")
+        XCTAssertNotNil(m[1]); XCTAssertNil(m[2]); XCTAssertNotNil(m[3])
+        m.removeAll()
+        XCTAssertNil(m[1])
+    }
+
+    func testTypingIsEdited() {
+        XCTAssertEqual(FieldChange.between("안녕", "안녕하", resumed: false), .edited)
+        XCTAssertEqual(FieldChange.between("", "hello there my friend", resumed: false), .edited)
+        XCTAssertEqual(FieldChange.between("긴 문장을 쓰다가 한 단어를 바꿈", "긴 문장을 쓰다가 두 단어를 바꿈", resumed: false), .edited)
+        XCTAssertEqual(FieldChange.between("짧음", "짧은 글을 통째로 다시 썼습니다", resumed: false), .edited)
+        XCTAssertEqual(FieldChange.between("같음", "같음", resumed: true), .none)
+        XCTAssertEqual(FieldChange.between("보낼 글", " \n", resumed: false), .emptied)
+    }
+
+    func testAnotherDocumentInTheSameFieldIsNotTyping() {
+        let a = "회의 메모: 예산 검토와 일정 조정", b = "일기: 오늘은 날씨가 좋아서 산책을 했다"
+        XCTAssertEqual(FieldChange.between(a, b, resumed: false), .replaced)
+        XCTAssertEqual(FieldChange.between("", String(repeating: "불러온 초안 ", count: 40), resumed: false), .replaced)
+        // 돌아왔을 때 글이 달라져 있으면 다른 글로 본다. 키 몇 번 차이만 입력으로 본다
+        XCTAssertEqual(FieldChange.between("쓰던 글입니다", "쓰던 글입니다 그리고 다른 사람이 덧붙임", resumed: true), .replaced)
+        XCTAssertEqual(FieldChange.between("쓰던 글", "쓰던 글이", resumed: true), .edited)
+    }
+}
+
+final class BestResultTests: XCTestCase {
+    private func best(_ level: CorrectionLevel, _ cache: [CorrectionLevel: String]) -> String? {
+        CorrectionPipeline.best(for: "원문", level: level) { cache[$0] }.map { "\($0.level):\($0.corrected)" }
+    }
+
+    func testRewriteShowsProofreadUntilItIsReady() {
+        XCTAssertNil(best(.rewrite, [:]))
+        XCTAssertEqual(best(.rewrite, [.proofread: "교정"]), "proofread:교정")
+        XCTAssertEqual(best(.rewrite, [.proofread: "교정", .rewrite: "다시"]), "rewrite:다시")
+        XCTAssertNil(best(.rewrite, [.proofread: "원문"]))                          // 고칠 곳 없음 → 아직 보여 줄 것 없음
+        XCTAssertNil(best(.rewrite, [.proofread: "교정", .rewrite: "원문"]))         // 마지막 결과가 원문과 같으면 앞 단계로 돌아가지 않음
+    }
+
+    func testOtherLevelsIgnoreOtherCaches() {
+        XCTAssertNil(best(.polish, [.proofread: "교정"]))
+        XCTAssertEqual(best(.polish, [.polish: "다듬"]), "polish:다듬")
+    }
+}
+
 final class RetryTests: XCTestCase {
     func testEmptyResponseIsRetriedOnceOnly() async {
         var calls = 0
