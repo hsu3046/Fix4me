@@ -3,9 +3,14 @@ import UIKit
 
 /// 교정 전용 키보드. 글자판은 없고, 열면 커서가 있는 섹션을 교정해 보여 준다.
 final class KeyboardViewController: UIInputViewController, KeyboardProxy {
+    private let corrector = KeyboardCorrector()
     private lazy var model = KeyboardModel(
         session: KeyboardSession(proxy: self),
-        hasFullAccess: { [weak self] in self?.hasFullAccess ?? false },
+        environment: .init(
+            hasFullAccess: { [weak self] in self?.hasFullAccess ?? false },
+            hasKey: { [corrector] in corrector.hasKey },
+            correct: { [corrector] in try await corrector.correct($0, level: $1) }
+        ),
         close: { [weak self] in self?.advanceToNextInputMode() }
     )
 
@@ -28,6 +33,11 @@ final class KeyboardViewController: UIInputViewController, KeyboardProxy {
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
         model.open()
+    }
+
+    override func viewWillDisappear(_ animated: Bool) {
+        super.viewWillDisappear(animated)
+        model.closed()
     }
 
     override func textDidChange(_ textInput: (any UITextInput)?) { model.textMayHaveChanged() }

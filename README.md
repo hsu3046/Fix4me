@@ -39,7 +39,7 @@ You write to people in three languages, and every message costs you a second loo
 - **Never overwrites newer typing** — If the text changed while a correction was on its way, nothing is written.
 - **Undoes in one step** — `⌃⌥Z` restores the last correction as long as it is still in place.
 - **Keeps a private history, if you want one** — Off by default, stored only on your Mac, deleted after 30 days.
-- **Works on iPhone too** — A correction-only keyboard: switch to it with 🌐, check the preview, tap *Apply*, and you're back on your usual keyboard.
+- **Works on iPhone too** — A correction-only keyboard: switch to it with 🌐, and *Proofread* fixes the text and returns you to your usual keyboard by itself; *Polish* and *Rewrite* show a preview first.
 
 ---
 
@@ -118,7 +118,7 @@ The bar is yellow for *Proofread*, blue for *Polish* and purple for *Rewrite*. W
 
 ### On iPhone
 
-Type with your usual keyboard, hold 🌐 and pick Fix4me. It reads the section at the cursor (or the selection) and shows the correction. *Apply* writes it and returns you to your keyboard; reopening Fix4me right after offers *Undo* (되돌리기).
+Type with your usual keyboard, hold 🌐 and pick Fix4me. It reads the section at the cursor (or the selection). With *Proofread* it fixes the text right away and returns you to your keyboard; *Polish* and *Rewrite* show a preview and wait for *Apply* (적용). Reopening Fix4me right after offers *Undo* (되돌리기). Switching away before it finishes cancels it.
 
 ### Settings
 
@@ -219,13 +219,14 @@ Language model output varies, so `--evaluate` reports counts rather than pass or
 - *Polish* has turned `12/05` into `December 5`, guessing the date order.
 - *Rewrite* can add small words or shift nuance.
 - A field's formatting inside a changed line may be lost.
-- The iPhone keyboard has been checked in the simulator only. It moves the cursor briefly to read the text, which takes about half a second.
+- The iPhone keyboard has had little real-world use so far. It moves the cursor briefly to read the text, which takes about half a second.
 
 ---
 
 ## 🗺 Roadmap
 
-- [ ] iPhone keyboard checked on a real device
+- [x] iPhone keyboard
+- [ ] Letter keys in the iPhone keyboard (Korean and English), so no switching is needed
 - [ ] Faster corrections, measured against the evaluation set
 - [ ] Remember the preferred strength for each app
 - [ ] Protect dates and numbers in Polish and Rewrite

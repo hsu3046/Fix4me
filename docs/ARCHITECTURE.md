@@ -47,7 +47,7 @@
 
 ## iPhone 교정 키보드
 
-글자판은 없다. 평소 키보드로 쓰고 🌐 로 Fix4me 를 열면 커서가 있는 섹션을 교정해 보여 주고, **적용**을 누르면 고친 뒤 쓰던 키보드로 돌아간다.
+글자판은 없다. 평소 키보드로 쓰고 🌐 로 Fix4me 를 연다. **문법 교정**은 열면 바로 고치고 쓰던 키보드로 돌아가고(고칠 곳이 없으면 잠깐 알리고 돌아감), **문장 개선·다시 쓰기**는 미리보기에서 적용을 누른다. 바로 다시 열면 되돌리기.
 
 ```
 열림 → KeyboardSession.read()   커서를 옮기며 앞뒤를 읽고 제자리로 (섹션 경계·600자·14걸음까지)
@@ -60,7 +60,8 @@
 | 경로 | 역할 |
 |---|---|
 | `Shared/KeyboardDocument.swift` | 읽기·쓰기 로직 (`KeyboardProxy` 로 시험 가능, `Fix4meTests/KeyboardTests.swift`) |
-| `Fix4meiOS/Keyboard/` | 키보드 확장: 컨트롤러, 상태(`KeyboardModel`), 화면 |
+| `Shared/KeyboardModel.swift` | 키보드의 상태와 흐름 (자동 적용·되돌리기·닫힘 처리, `Fix4meTests/KeyboardModelTests.swift`) |
+| `Fix4meiOS/Keyboard/` | 키보드 확장: 컨트롤러, 화면, 교정 요청(`KeyboardCorrector`) |
 | `Fix4meiOS/App/` | 설정 앱: 키보드 켜기 안내, API 키, 강도, 개인 사전, 써 보기 |
 | `Fix4meiOS/Support/` | Info.plist·entitlements (키체인 공유) |
 

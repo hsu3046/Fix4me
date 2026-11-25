@@ -1,6 +1,7 @@
 import Foundation
 import Observation
 
+/// 교정 키보드의 상태. 문법 교정은 열면 바로 고치고 쓰던 키보드로 돌아가고, 문장 개선·다시 쓰기는 미리보기를 보여 준다.
 @MainActor
 @Observable
 final class KeyboardModel {
@@ -22,34 +23,60 @@ final class KeyboardModel {
         let corrected: String
     }
     private static var applied: Applied?
+    /// 되돌린 글: 다시 열었을 때 같은 교정을 또 바로 적용하지 않고 미리보기를 보여 준다
+    private static var reverted: String?
+    static func forget() { applied = nil; reverted = nil }
 
     private(set) var state = State.reading
-    var level = CorrectionLevel.current {
+    var level: CorrectionLevel {
         didSet {
             guard level != oldValue else { return }
-            CorrectionLevel.save(level)
+            environment.saveLevel(level)
             run()
         }
     }
     @ObservationIgnored private let session: KeyboardSession
-    @ObservationIgnored private let hasFullAccess: () -> Bool
+    @ObservationIgnored private let environment: Environment
     @ObservationIgnored private let close: () -> Void
     @ObservationIgnored private var task: Task<Void, Never>?
-    @ObservationIgnored private var cache = CorrectionCache(capacity: 30)
     @ObservationIgnored private var text: KeyboardText?
     @ObservationIgnored private var target: KeyboardText.Target?
     @ObservationIgnored private var touching = false    // 우리가 커서를 옮기거나 쓰는 중
+    @ObservationIgnored private var isOpen = false
 
-    init(session: KeyboardSession, hasFullAccess: @escaping () -> Bool, close: @escaping () -> Void) {
+    /// 키보드 밖의 것들 (시험에서는 바꿔 끼운다)
+    struct Environment {
+        var hasFullAccess: () -> Bool
+        var hasKey: () -> Bool
+        var loadLevel: () -> CorrectionLevel = { .current }
+        var saveLevel: (CorrectionLevel) -> Void = { CorrectionLevel.save($0) }
+        var correct: (KeyboardText.Target, CorrectionLevel) async throws -> String
+        /// "고칠 곳이 없어요" 를 보여 주는 시간
+        var showNoChange: () async -> Void = { try? await Task.sleep(for: .milliseconds(800)) }
+    }
+
+    init(session: KeyboardSession, environment: Environment, close: @escaping () -> Void) {
         self.session = session
-        self.hasFullAccess = hasFullAccess
+        self.environment = environment
         self.close = close
+        level = environment.loadLevel()
     }
 
     /// 키보드가 열릴 때
     func open() {
-        level = CorrectionLevel.current   // 앱에서 바꾼 강도 (바뀌었으면 아래에서 다시 시작한다)
-        run(offerRevert: true)
+        isOpen = true
+        level = environment.loadLevel()   // 앱에서 바꾼 강도 (바뀌었으면 아래에서 다시 시작한다)
+        run(opening: true)
+    }
+
+    /// 키보드가 닫힐 때: 기다리던 교정을 뒤늦게 적용하거나 키보드를 바꾸지 않는다
+    func closed() {
+        isOpen = false
+        task?.cancel()
+    }
+
+    private func leave() {
+        if isOpen { close() }
     }
 
     /// 우리가 한 일이 아닌 변경: 보여 준 결과가 더는 맞지 않는다
@@ -60,69 +87,61 @@ final class KeyboardModel {
         }
     }
 
-    /// - Parameter offerRevert: 커서 앞이 방금 고친 글이면 교정 대신 되돌리기를 보인다
-    func run(offerRevert: Bool = false) {
+    /// - Parameter opening: 키보드를 막 열었다. 커서 앞이 방금 고친 글이면 되돌리기를 보이고, 문법 교정은 바로 적용한다
+    func run(opening: Bool = false) {
         task?.cancel()
-        guard hasFullAccess() else { return state = .needsFullAccess }
-        guard Stub.isOn || Keychain.read(Keychain.openRouterAccount) != nil else { return state = .needsKey }
+        guard environment.hasFullAccess() else { return state = .needsFullAccess }
+        guard environment.hasKey() else { return state = .needsKey }
         state = .reading
-        task = Task { await correct(offerRevert: offerRevert) }
+        task = Task { await correct(opening: opening) }
     }
 
-    private func correct(offerRevert: Bool) async {
+    private func correct(opening: Bool) async {
         do {
             touching = true
             defer { touching = false }
             let read = try await session.read()
             guard !Task.isCancelled else { return }
             text = read
-            if offerRevert, let applied = Self.applied, read.selected.isEmpty, read.before.hasSuffix(applied.corrected) {
+            if opening, let applied = Self.applied, read.selected.isEmpty, read.before.hasSuffix(applied.corrected) {
                 return state = .applied
             }
             target = read.target(level: level)
         } catch {
-            return state = .error(error.localizedDescription)
+            if !Task.isCancelled { state = .error(error.localizedDescription) }
+            return
         }
         guard let target else { return state = .empty }
         let level = self.level
         state = .working(level.workingTitle)
         do {
-            let corrected = try await corrected(target, level: level)
+            let corrected = try await environment.correct(target, level)
             guard !Task.isCancelled else { return }
-            state = corrected == target.text ? .noChange : .result(original: target.text, corrected: corrected)
+            guard corrected != target.text else {
+                state = .noChange
+                guard opening else { return }
+                await environment.showNoChange()
+                if !Task.isCancelled { leave() }
+                return
+            }
+            state = .result(original: target.text, corrected: corrected)
+            if opening, level == .proofread, target.text != Self.reverted { apply() }
         } catch {
             if !Task.isCancelled { state = .error(error.localizedDescription) }
         }
     }
 
-    private func corrected(_ target: KeyboardText.Target, level: CorrectionLevel) async throws -> String {
-        let dictionary = PersonalDictionary.parse(SharedStore.dictionaryText)
-        let key = CorrectionCache.Key(level: level, text: target.text, dictionary: dictionary)
-        if let hit = cache.value(for: key) { return hit }
-        let result: String
-        if Stub.isOn {
-            result = try await Stub.correct(target.text)
-        } else {
-            guard let apiKey = Keychain.read(Keychain.openRouterAccount) else { throw CorrectionError.missingKey }
-            let client = OpenRouterClient(apiKey: apiKey)
-            result = try await CorrectionPipeline.run(target.text, level: level) { input, stage in
-                try await client.correct(input, level: stage, before: target.context, dictionary: dictionary)
-            }
-        }
-        cache.insert(result, for: key)
-        return result
-    }
-
     func apply() {
-        guard case let .result(original, corrected) = state, let text, let target else { return }
+        guard !touching, case let .result(original, corrected) = state, let text, let target else { return }
         touching = true
         Task {
             defer { touching = false }
             do {
                 try await session.apply(target, in: text, corrected: corrected)
                 Self.applied = Applied(original: original, corrected: corrected)
+                Self.reverted = nil
                 state = .applied
-                close()   // 쓰던 키보드로 돌아간다
+                leave()   // 쓰던 키보드로 돌아간다
             } catch {
                 state = .error(error.localizedDescription)
             }
@@ -131,7 +150,7 @@ final class KeyboardModel {
 
     /// 커서 바로 앞이 고친 글일 때만 되돌린다
     func revert() {
-        guard let applied = Self.applied else { return }
+        guard !touching, let applied = Self.applied else { return }
         touching = true
         Task {
             defer { touching = false }
@@ -141,7 +160,8 @@ final class KeyboardModel {
                 let target = KeyboardText.Target(text: applied.corrected, context: "", forward: "", backward: "", isSelection: false)
                 try await session.apply(target, in: read, corrected: applied.original)
                 Self.applied = nil
-                close()
+                Self.reverted = applied.original
+                leave()
             } catch {
                 state = .error(error.localizedDescription)
             }
@@ -153,22 +173,5 @@ final class KeyboardModel {
         run()
     }
 
-    func finish() { close() }
-}
-
-/// 시험용 가짜 교정 (디버그 빌드에서 앱 설정으로 켠 경우만). 시뮬레이터에 실제 키를 넣지 않고 동작을 확인한다.
-enum Stub {
-    static var isOn: Bool {
-        #if DEBUG
-        SharedStore.stubCorrections
-        #else
-        false
-        #endif
-    }
-
-    static func correct(_ text: String) async throws -> String {
-        try await Task.sleep(for: .milliseconds(500))
-        return [("않 ", "안 "), ("이번주", "이번 주"), ("금요일 까지", "금요일까지"), ("I has a", "I have an"), ("会議わ", "会議は")]
-            .reduce(text) { $0.replacingOccurrences(of: $1.0, with: $1.1) }
-    }
+    func finish() { leave() }
 }
