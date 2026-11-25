@@ -67,6 +67,33 @@ final class CorrectionParserTests: XCTestCase {
         XCTAssertThrowsError(try CorrectionParser.parse("Sure! Here is the text"))
     }
 
+    func testUnwrapsEchoedTextTags() {
+        // Slack 에서 실제로 나온 형태: 래퍼와 줄바꿈까지 그대로 옮겨 옴
+        let original = "This is custom app test, so nobody need to reply this post."
+        let echoed = "<text>\nThis is a custom app test, so no one needs to reply to this post.\n</text>"
+        XCTAssertEqual(CorrectionParser.unwrapTextTags(echoed, original: original),
+                       "This is a custom app test, so no one needs to reply to this post.")
+        // 줄바꿈 없이 붙은 경우도
+        XCTAssertEqual(CorrectionParser.unwrapTextTags("<text>안 지키면</text>", original: "않 지키면"), "안 지키면")
+    }
+
+    func testKeepsTagsWhenNotAPair() {
+        // 한쪽 태그만 있으면 래퍼가 아니다 → 그대로
+        let s = "<text> 태그 사용법을 설명합니다"
+        XCTAssertEqual(CorrectionParser.unwrapTextTags(s, original: "<text> 태그 사용법을 설명합니다"), s)
+        XCTAssertEqual(CorrectionParser.unwrapTextTags("끝은 </text>", original: "끝은 </text>"), "끝은 </text>")
+    }
+
+    func testKeepsTagsThatWereInOriginal() {
+        // 원문이 원래 태그로 감싸여 있었다면 사용자 내용
+        let s = "<text>hello</text>"
+        XCTAssertEqual(CorrectionParser.unwrapTextTags(s, original: s), s)
+    }
+
+    func testNoTagsUnchanged() {
+        XCTAssertEqual(CorrectionParser.unwrapTextTags("I have an apple.", original: "I has a apple."), "I have an apple.")
+    }
+
     func testPlausibility() {
         XCTAssertTrue(CorrectionParser.isPlausible(original: "I has a apple.", corrected: "I have an apple."))
         XCTAssertFalse(CorrectionParser.isPlausible(

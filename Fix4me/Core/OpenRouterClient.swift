@@ -33,6 +33,7 @@ struct OpenRouterClient: Sendable {
     Fix spelling, typos, grammar, particles, Korean spacing (띄어쓰기), honorific errors and ungrammatical sentences.
     Keep the original language, meaning, tone, line breaks, emoji and formatting. Do not rephrase text that is already correct.
     Reply with JSON only: {"corrected":"<the full corrected text>"}. If nothing needs fixing, return the text unchanged.
+    The value of "corrected" must not include the <text> or </text> tags themselves.
     """
 
     func correct(_ text: String) async throws -> String {
@@ -72,7 +73,8 @@ struct OpenRouterClient: Sendable {
         }
         let corrected: String
         do {
-            corrected = try CorrectionParser.parse(content)
+            // 모델이 입력 래퍼 <text>…</text> 를 결과에 그대로 옮겨 오는 경우가 있어 벗긴다
+            corrected = CorrectionParser.unwrapTextTags(try CorrectionParser.parse(content), original: text)
         } catch {
             throw CorrectionError.badResponse("JSON 형식 아님")
         }
