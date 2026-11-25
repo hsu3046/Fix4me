@@ -4,9 +4,17 @@ import SwiftUI
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem?
-    private let controller = CorrectionController()
+    private let precomputer: Precomputer
+    private let controller: CorrectionController
     private let settingsModel = SettingsModel()
     private var settingsWindow: NSWindow?
+
+    override init() {
+        let service = CorrectionService()
+        precomputer = Precomputer(service: service)
+        controller = CorrectionController(service: service, precomputer: precomputer)
+        super.init()
+    }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // 단위 테스트 호스트로 뜰 때는 메뉴·단축키를 만들지 않는다
@@ -17,6 +25,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let ok1 = HotKeyCenter.shared.register(HotKeyCenter.correct) { [weak self] in self?.controller.correctFocused() }
         let ok2 = HotKeyCenter.shared.register(HotKeyCenter.revert) { [weak self] in self?.controller.revertLast() }
         settingsModel.hotKeysOK = ok1 && ok2
+        precomputer.start()
 
         // 처음 실행이거나 준비가 덜 됐으면 설정 창부터
         if !AXText.isTrusted || Keychain.read(Keychain.openRouterAccount) == nil || !settingsModel.hotKeysOK {
@@ -82,7 +91,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             window.styleMask = [.titled, .closable, .resizable]
             window.isReleasedWhenClosed = false
             // 내용의 fitting size 에 기대지 않고 첫 크기를 명시 (SettingsView 의 ideal 크기와 같게)
-            window.setContentSize(NSSize(width: 520, height: 660))
+            window.setContentSize(NSSize(width: 520, height: 780))
             window.contentMinSize = NSSize(width: 460, height: 360)
             settingsWindow = window
         }

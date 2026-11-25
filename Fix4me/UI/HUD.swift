@@ -101,12 +101,15 @@ private struct HUDView: View {
     private var title: String {
         switch state {
         case let .working(title): title
-        case let .done(count, _, s): "\(count)곳 고쳤어요 · \(String(format: "%.1f", s))초"
-        case let .noChange(s): "고칠 곳이 없어요 · \(String(format: "%.1f", s))초"
+        case let .done(count, _, s): "\(count)곳 고쳤어요 · \(Self.time(s))"
+        case let .noChange(s): "고칠 곳이 없어요 · \(Self.time(s))"
         case .reverted: "원래대로 되돌렸어요"
         case let .error(message): message
         }
     }
+
+    /// 미리 교정해 둔 결과는 "즉시"
+    private static func time(_ s: Double) -> String { s < 0.05 ? "즉시" : String(format: "%.1f초", s) }
 
     private var detail: String? {
         switch state {

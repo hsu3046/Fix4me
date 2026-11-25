@@ -5,16 +5,23 @@ import OSLog
 @MainActor
 final class CorrectionController {
     private let hud = HUDController()
+    private let service: CorrectionService
+    private let precomputer: Precomputer
     private let log = Logger(subsystem: "com.aib.fix4me", category: "correction")
     private var busy = false
     private var lastEdit: LastEdit?
 
-    /// 되돌리기용 기록: 교정 후 입력창에서 바뀐 구간과 원래 내용
+    /// 되돌리기용 기록: 교정 후 글 기준으로 원래 내용을 되살리는 편집들 (앞에서부터)
     private struct LastEdit {
         let element: AXUIElement
-        let range: NSRange      // 교정 후 값 기준, 삽입된 구간
-        let inserted: String
-        let original: String
+        let undo: [TextEdit]
+        let inserted: [String]   // 각 구간에 지금 있어야 하는 글
+        let originals: [String]  // 교정 대상이던 원문 (되돌린 뒤 다시 보내지 않도록)
+    }
+
+    init(service: CorrectionService, precomputer: Precomputer) {
+        self.service = service
+        self.precomputer = precomputer
     }
 
     func correctFocused() {
@@ -38,11 +45,6 @@ final class CorrectionController {
     // MARK: - 교정
 
     private func runCorrection() async {
-        guard let key = Keychain.read(Keychain.openRouterAccount), !key.isEmpty else {
-            hud.show(.error(CorrectionError.missingKey.localizedDescription), near: nil)
-            return
-        }
-
         let field: FocusedText
         do {
             field = try await AXText.focused()
@@ -50,65 +52,122 @@ final class CorrectionController {
             hud.show(.error(error.localizedDescription), near: nil)
             return
         }
-        guard let target = TextScope.target(in: field.value, selection: field.selection) else {
+        // 설정은 누를 때마다 읽어 바로 반영한다
+        let level = CorrectionLevel.current
+        let scope = Prefs.scope
+        let value = field.value as NSString
+        guard value.length <= TextScope.wholeMaxLength || scope != .whole || field.selection.length > 0 else {
+            hud.show(.error("너무 길어요 — 고칠 부분을 선택해 주세요"), near: nil)
+            return
+        }
+        let targets = TextScope.plan(
+            in: field.value, selection: field.selection, mode: scope, level: level,
+            baseline: precomputer.baseline(for: field.element)
+        )
+        guard let last = targets.last else {
             hud.show(.error("교정할 텍스트가 없어요"), near: AXText.screenRect(of: field.selection, in: field.element))
             return
         }
-        guard target.length <= TextScope.maxLength else {
+        guard targets.allSatisfy({ $0.length <= TextScope.maxLength }) else {
             hud.show(.error("너무 길어요 — \(TextScope.maxLength)자 이하로 선택해 주세요"), near: nil)
             return
         }
 
-        let anchor = AXText.screenRect(of: target, in: field.element)
-        let original = (field.value as NSString).substring(with: target)
-        let level = CorrectionLevel.current   // 설정에서 고른 강도 (누를 때마다 읽어 즉시 반영)
-        hud.show(.working(level.workingTitle), near: anchor)
+        let anchor = AXText.caretRect(field) ?? AXText.screenRect(of: last, in: field.element)
+        let originals = targets.map { value.substring(with: $0) }
+        if originals.contains(where: { service.cached($0, level: level) == nil }) {
+            hud.show(.working(level.workingTitle), near: anchor)
+        }
 
         let started = ContinuousClock.now
-        let corrected: String
+        let corrected: [String]
         do {
-            corrected = try await OpenRouterClient(apiKey: key).correct(original, level: level)
+            corrected = try await correctAll(originals, ranges: targets, in: field.value, level: level)
         } catch {
             hud.show(.error(error.localizedDescription), near: anchor)
             return
         }
         let elapsed = ContinuousClock.now - started
-        log.info("corrected level=\(level.rawValue) len=\(original.count) in \(elapsed.components.seconds)s")
+        log.info("corrected level=\(level.rawValue) targets=\(targets.count) in \(elapsed.seconds, format: .fixed(precision: 2))s")
 
-        guard let span = TextDiff.changedSpan(old: original, new: corrected) else {
+        // 범위 안에서 실제로 바뀐 구간만, 글 전체 기준 위치로
+        var edits: [TextEdit] = []
+        for (i, range) in targets.enumerated() {
+            edits += TextDiff.edits(old: originals[i], new: corrected[i]).map {
+                TextEdit(range: NSRange(location: range.location + $0.range.location, length: $0.range.length), text: $0.text)
+            }
+        }
+        guard !edits.isEmpty else {
+            precomputer.didWrite(field.value, before: field.value, processed: originals, to: field.element)
             hud.show(.noChange(seconds: elapsed.seconds), near: anchor)
             return
         }
 
-        // 기다리는 동안 사용자가 입력을 바꿨으면 옛 결과로 덮어쓰지 않는다 (스냅샷 대조)
-        guard let latest = AXText.currentValue(field.element),
-              NSMaxRange(target) <= (latest as NSString).length,
-              (latest as NSString).substring(with: target) == original else {
+        // 기다리는 동안 글이 바뀌었으면 옛 결과로 덮어쓰지 않는다 (스냅샷 대조)
+        guard let latest = AXText.currentValue(field.element), latest == field.value else {
             hud.show(.error("기다리는 동안 내용이 바뀌어 취소했어요"), near: anchor)
             return
         }
 
-        let writeRange = NSRange(location: target.location + span.oldRange.location, length: span.oldRange.length)
-        let expected = (latest as NSString).replacingCharacters(in: writeRange, with: span.replacement)
-        guard let method = await AXText.replace(
-            in: field.element, range: writeRange, with: span.replacement, expected: expected
-        ) else {
+        precomputer.suspended = true
+        defer { precomputer.suspended = false }
+        let applied = await write(edits, to: field.element, value: latest)
+        guard !applied.edits.isEmpty else {
             hud.show(.error("\(field.appName)에 쓰지 못했어요"), near: anchor)
             return
         }
-
-        // 커서를 바뀐 구간 끝으로 (붙여넣기 경로는 앱이 이미 옮겨 둠)
-        let insertedRange = NSRange(location: writeRange.location, length: (span.replacement as NSString).length)
-        if method == .accessibility {
-            AXText.select(NSRange(location: NSMaxRange(insertedRange), length: 0), in: field.element)
+        if applied.edits.count == edits.count, let now = AXText.currentValue(field.element) {
+            precomputer.didWrite(now, before: field.value, processed: corrected, to: field.element)
         }
         lastEdit = LastEdit(
-            element: field.element, range: insertedRange,
-            inserted: span.replacement, original: (latest as NSString).substring(with: writeRange)
+            element: field.element, undo: TextDiff.inverse(of: applied.edits, in: latest), inserted: applied.edits.map(\.text),
+            originals: originals
         )
+        guard applied.edits.count == edits.count else {
+            hud.show(.error("\(edits.count)곳 중 \(applied.edits.count)곳만 고쳤어요 — \(HotKeyCenter.revert.label) 로 되돌릴 수 있어요"), near: anchor)
+            return
+        }
 
-        let hunks = TextDiff.hunks(old: original, new: corrected)
+        // 커서를 원래 있던 글자 옆으로 (붙여넣기 경로는 앱이 이미 옮겨 둠)
+        if applied.method == .accessibility {
+            let caret = TextDiff.shift(NSMaxRange(field.selection), by: edits)
+            AXText.select(NSRange(location: caret, length: 0), in: field.element)
+        }
+        let hunks = zip(originals, corrected).flatMap { TextDiff.hunks(old: $0, new: $1) }
         hud.show(.done(count: hunks.count, preview: Self.preview(hunks), seconds: elapsed.seconds), near: anchor)
+    }
+
+    /// 범위마다 교정 (캐시에 있으면 즉시, 진행 중이면 이어받음). 하나라도 실패하면 아무것도 쓰지 않는다.
+    private func correctAll(
+        _ originals: [String], ranges: [NSRange], in value: String, level: CorrectionLevel
+    ) async throws -> [String] {
+        var results = originals
+        let width = 4 // 동시 요청 수
+        for start in stride(from: 0, to: originals.count, by: width) {
+            let batch = Array(start..<min(start + width, originals.count))
+            let tasks = batch.map { i in
+                let context = TextScope.context(around: ranges[i], in: value)
+                return Task { try await service.correct(originals[i], level: level, before: context.before, after: context.after) }
+            }
+            for (i, task) in zip(batch, tasks) { results[i] = try await task.value }
+        }
+        return results
+    }
+
+    /// 뒤에서부터 써서 앞쪽 위치가 밀리지 않게 한다. 매번 지금 글이 예상과 같은지 확인하고, 다르면 멈춘다.
+    private func write(
+        _ edits: [TextEdit], to element: AXUIElement, value: String
+    ) async -> (edits: [TextEdit], method: AXText.WriteMethod) {
+        var current = value, done: [TextEdit] = [], method = AXText.WriteMethod.accessibility
+        for edit in edits.reversed() {
+            guard AXText.currentValue(element) == current else { break }
+            let expected = (current as NSString).replacingCharacters(in: edit.range, with: edit.text)
+            guard let m = await AXText.replace(in: element, range: edit.range, with: edit.text, expected: expected) else { break }
+            if m == .paste { method = .paste }
+            done.insert(edit, at: 0)
+            current = expected
+        }
+        return (done, method)
     }
 
     // MARK: - 되돌리기
@@ -118,19 +177,24 @@ final class CorrectionController {
             hud.show(.error("되돌릴 교정이 없어요"), near: nil)
             return
         }
+        lastEdit = nil
         // 같은 입력창, 같은 자리에 교정 결과가 그대로 있을 때만 되돌린다
         guard let value = AXText.currentValue(edit.element),
-              NSMaxRange(edit.range) <= (value as NSString).length,
-              (value as NSString).substring(with: edit.range) == edit.inserted else {
-            lastEdit = nil
+              zip(edit.undo, edit.inserted).allSatisfy({ e, text in
+                  NSMaxRange(e.range) <= (value as NSString).length && (value as NSString).substring(with: e.range) == text
+              }) else {
             hud.show(.error("이미 내용이 바뀌었어요 — ⌘Z 를 써 주세요"), near: nil)
             return
         }
-        let expected = (value as NSString).replacingCharacters(in: edit.range, with: edit.original)
-        let ok = await AXText.replace(in: edit.element, range: edit.range, with: edit.original, expected: expected) != nil
-        lastEdit = nil
-        hud.show(ok ? .reverted : .error("되돌리지 못했어요 — ⌘Z 를 써 주세요"),
-                 near: AXText.screenRect(of: edit.range, in: edit.element))
+        precomputer.suspended = true
+        defer { precomputer.suspended = false }
+        let applied = await write(edit.undo, to: edit.element, value: value)
+        if let now = AXText.currentValue(edit.element) {
+            precomputer.didWrite(now, before: value, processed: edit.originals, to: edit.element)
+        }
+        let ok = applied.edits.count == edit.undo.count
+        hud.show(ok ? .reverted : .error("다 되돌리지 못했어요 — ⌘Z 를 써 주세요"),
+                 near: edit.undo.first.flatMap { AXText.screenRect(of: $0.range, in: edit.element) })
     }
 
     /// "않 → 안, 금새 → 금세" 처럼 앞쪽 몇 개만

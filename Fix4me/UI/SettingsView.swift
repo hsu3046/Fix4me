@@ -1,6 +1,7 @@
 import AppKit
 import Observation
 import SwiftUI
+import UniformTypeIdentifiers
 
 @MainActor
 @Observable
@@ -14,6 +15,28 @@ final class SettingsModel {
     /// 교정 강도 — 바꾸면 즉시 저장, 다음 ⌃⌥F 부터 적용 (didSet 안에서 자기 대입 금지: @Observable 재귀)
     var level = CorrectionLevel.current {
         didSet { CorrectionLevel.save(level) }
+    }
+
+    var scope = Prefs.scope { didSet { Prefs.scope = scope } }
+    var precompute = Prefs.precompute { didSet { Prefs.precompute = precompute } }
+    var badge = Prefs.badge { didSet { Prefs.badge = badge } }
+    var excluded = Prefs.excluded { didSet { Prefs.excluded = excluded } }
+
+    /// 앱을 골라 미리 교정 제외 목록에 넣는다
+    func addExcludedApp() {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.application]
+        panel.directoryURL = URL(fileURLWithPath: "/Applications")
+        panel.prompt = "제외"
+        guard panel.runModal() == .OK, let url = panel.url, let id = Bundle(url: url)?.bundleIdentifier,
+              !excluded.contains(id) else { return }
+        excluded.append(id)
+    }
+
+    /// 설치된 앱이면 이름, 아니면 번들 ID
+    static func appName(_ id: String) -> String {
+        NSWorkspace.shared.urlForApplication(withBundleIdentifier: id)
+            .map { FileManager.default.displayName(atPath: $0.path).replacingOccurrences(of: ".app", with: "") } ?? id
     }
 
     @ObservationIgnored private var pollTask: Task<Void, Never>?
@@ -111,6 +134,33 @@ struct SettingsView: View {
                 .font(.callout)
             }
 
+            Section("교정 범위") {
+                Picker("교정 범위", selection: $model.scope) {
+                    ForEach(ScopeMode.allCases) { Text($0.title).tag($0) }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                Text(model.scope.summary + " 선택한 글이 있으면 항상 그 부분만 고쳐요.").font(.callout)
+            }
+
+            Section("미리 교정") {
+                Toggle("입력이 멈추면 미리 교정해 두기", isOn: $model.precompute)
+                Toggle("고칠 곳 수를 커서 옆에 표시", isOn: $model.badge).disabled(!model.precompute)
+                Text("켜면 단축키를 누르지 않은 글도 OpenRouter 로 보내요. 비밀번호 입력란, 검색창, 주소창, 키처럼 보이는 글과 아래 앱은 보내지 않아요.")
+                    .font(.caption).foregroundStyle(.secondary)
+                DisclosureGroup("제외한 앱 \(model.excluded.count)개") {
+                    ForEach(model.excluded, id: \.self) { id in
+                        HStack {
+                            Text(SettingsModel.appName(id))
+                            Spacer()
+                            Button("제거") { model.excluded.removeAll { $0 == id } }
+                        }
+                    }
+                    Button("앱 추가…") { model.addExcludedApp() }
+                }
+                .disabled(!model.precompute)
+            }
+
             Section("OpenRouter API 키") {
                 HStack {
                     SecureField("sk-or-…", text: $model.keyInput)
@@ -134,7 +184,7 @@ struct SettingsView: View {
             Section("단축키") {
                 LabeledContent("포커스된 입력창 교정", value: HotKeyCenter.correct.label)
                 LabeledContent("마지막 교정 되돌리기", value: HotKeyCenter.revert.label)
-                Text("선택한 텍스트가 있으면 그 부분만, 없으면 커서가 있는 문단을 위의 교정 강도로 고쳐요.")
+                Text("위에서 고른 교정 강도와 범위로 고쳐요.")
                     .font(.caption).foregroundStyle(.secondary)
                 if !model.hotKeysOK {
                     Text("단축키 등록 실패 — 다른 앱이 같은 조합을 쓰고 있어요").foregroundStyle(.red)
@@ -148,7 +198,7 @@ struct SettingsView: View {
         .formStyle(.grouped)
         // grouped Form 은 내부가 스크롤 영역이라 스스로 높이를 정하지 않는다 → 높이를 명시 (없으면 창이 0 높이로 접힘)
         .frame(minWidth: 460, idealWidth: 520, maxWidth: .infinity,
-               minHeight: 360, idealHeight: 660, maxHeight: .infinity)
+               minHeight: 360, idealHeight: 780, maxHeight: .infinity)
         .onAppear { model.startPolling() }
         .onDisappear { model.stopPolling() }
     }

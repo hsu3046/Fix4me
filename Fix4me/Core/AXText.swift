@@ -5,6 +5,7 @@ import Carbon.HIToolbox
 /// 포커스된 입력창의 스냅샷. range 는 UTF-16 단위.
 struct FocusedText {
     let element: AXUIElement
+    let pid: pid_t
     let appName: String
     let value: String
     let selection: NSRange
@@ -61,7 +62,66 @@ enum AXText {
         }
         guard let value = copyString(element, kAXValueAttribute) else { throw AXTextError.unreadable }
         let selection = selectedRange(element) ?? NSRange(location: (value as NSString).length, length: 0)
-        return FocusedText(element: element, appName: app.localizedName ?? "앱", value: value, selection: selection)
+        return FocusedText(element: element, pid: app.processIdentifier, appName: app.localizedName ?? "앱", value: value, selection: selection)
+    }
+
+    /// 미리 교정의 감시용 읽기. 기다리지 않고, 느린 앱에 오래 붙잡히지 않는다. 글 입력란이 아니면 nil.
+    static func peek(_ app: NSRunningApplication, maxCharacters: Int) -> FocusedText? {
+        // 어느 앱이든 비밀번호 입력 중이면 아무것도 읽지 않는다
+        guard isTrusted, !IsSecureEventInputEnabled() else { return nil }
+        let appEl = AXUIElementCreateApplication(app.processIdentifier)
+        AXUIElementSetMessagingTimeout(appEl, 0.2)
+        guard let element = copyElement(appEl, kAXFocusedUIElementAttribute) else { return nil }
+        AXUIElementSetMessagingTimeout(element, 0.2)
+
+        let subrole = copyString(element, kAXSubroleAttribute)
+        guard subrole != (kAXSecureTextFieldSubrole as String), subrole != (kAXSearchFieldSubrole as String) else { return nil }
+        let role = copyString(element, kAXRoleAttribute)
+        guard role == (kAXTextAreaRole as String) || role == (kAXTextFieldRole as String) else { return nil }
+
+        // 브라우저의 주소창은 웹 요소가 아니다 → 웹 요소만 본다
+        if let id = app.bundleIdentifier, browsers.contains(id), !hasAttribute(element, "AXDOMClassList") { return nil }
+
+        // 큰 문서는 값을 복사하기 전에 거른다
+        var ref: CFTypeRef?
+        if AXUIElementCopyAttributeValue(element, kAXNumberOfCharactersAttribute as CFString, &ref) == .success,
+           let n = ref as? Int, n > maxCharacters { return nil }
+        guard let value = copyString(element, kAXValueAttribute), (value as NSString).length <= maxCharacters else { return nil }
+        let selection = selectedRange(element) ?? NSRange(location: (value as NSString).length, length: 0)
+        return FocusedText(element: element, pid: app.processIdentifier, appName: app.localizedName ?? "앱", value: value, selection: selection)
+    }
+
+    private static let chromium: Set<String> = [
+        "com.google.Chrome", "com.microsoft.edgemac", "com.brave.Browser", "company.thebrowser.Browser",
+    ]
+    private static let browsers = chromium.union(["com.apple.Safari", "org.mozilla.firefox"])
+
+    /// Chrome·Electron 의 접근성 트리를 켠다 (앱마다 한 번). 다른 앱에는 영향을 주지 않도록 속성을 나눠 쓴다.
+    static func wake(_ app: NSRunningApplication) {
+        let appEl = AXUIElementCreateApplication(app.processIdentifier)
+        AXUIElementSetMessagingTimeout(appEl, 0.2)
+        AXUIElementSetAttributeValue(appEl, "AXManualAccessibility" as CFString, kCFBooleanTrue)
+        if let id = app.bundleIdentifier, chromium.contains(id) {
+            AXUIElementSetAttributeValue(appEl, "AXEnhancedUserInterface" as CFString, kCFBooleanTrue)
+        }
+    }
+
+    /// 커서의 화면 위치. 글 끝처럼 글자가 없는 자리면 바로 앞 글자 기준.
+    static func caretRect(_ field: FocusedText) -> NSRect? {
+        let loc = field.selection.location
+        if loc > 0, let r = screenRect(of: NSRange(location: loc - 1, length: 1), in: field.element) {
+            return NSRect(x: r.maxX, y: r.minY, width: 1, height: r.height)
+        }
+        return screenRect(of: NSRange(location: loc, length: 1), in: field.element)
+    }
+
+    /// 이 입력창이 지금도 앞 앱의 포커스인지 (붙여넣기를 엉뚱한 곳에 보내지 않기 위해)
+    static func isFocused(_ element: AXUIElement) -> Bool {
+        var pid: pid_t = 0
+        guard AXUIElementGetPid(element, &pid) == .success,
+              NSWorkspace.shared.frontmostApplication?.processIdentifier == pid,
+              let now = copyElement(AXUIElementCreateApplication(pid), kAXFocusedUIElementAttribute) else { return false }
+        return CFEqual(now, element)
     }
 
     static func currentValue(_ element: AXUIElement) -> String? {
@@ -103,7 +163,8 @@ enum AXText {
         guard currentValue(element) == before else {
             return currentValue(element) == expected ? .accessibility : nil
         }
-        guard select(range, in: element) else { return nil }
+        // ⌘V 는 앞에 있는 앱으로 간다 → 그사이 다른 앱·입력창으로 옮겼으면 쓰지 않는다
+        guard isFocused(element), select(range, in: element) else { return nil }
         await paste(text)
         // 붙여넣기는 대상 앱이 비동기로 처리한다 → 잠시 기다린 뒤 확인
         for _ in 0..<6 {
@@ -151,6 +212,12 @@ enum AXText {
     }
 
     // MARK: - 저수준 헬퍼
+
+    private static func hasAttribute(_ el: AXUIElement, _ attr: String) -> Bool {
+        var names: CFArray?
+        guard AXUIElementCopyAttributeNames(el, &names) == .success, let list = names as? [String] else { return false }
+        return list.contains(attr)
+    }
 
     private static func copyElement(_ el: AXUIElement, _ attr: String) -> AXUIElement? {
         var ref: CFTypeRef?

@@ -51,8 +51,8 @@ enum CorrectionLevel: String, CaseIterable, Identifiable, Sendable {
     var example: String {
         switch self {
         case .proofread: "I has a apple → I have an apple"
-        case .polish: "It was a very successful beta test → The beta test was very successful"
-        case .rewrite: "긴 문장을 둘로 나누고 흐름을 정리"
+        case .polish: "역할에 대해서 확인을 하는 것이 필요하다고 생각되어집니다 → 역할을 확인할 필요가 있다고 생각합니다"
+        case .rewrite: "It was a very successful beta test → The beta test was a great success"
         }
     }
 
