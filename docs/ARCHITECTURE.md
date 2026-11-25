@@ -8,7 +8,7 @@
 ⌃⌥F (Carbon 전역 단축키)
   → AXText.focused()        앞 앱의 포커스 요소·값·선택 범위 (Chrome/Electron 은 접근성 트리 강제 활성화 후 재시도)
   → TextScope.target()      선택 영역 있으면 그것, 없으면 커서가 있는 문단 (최대 4000자, 비밀번호 입력란 제외)
-  → OpenRouterClient        anthropic/claude-haiku-5.5, provider.sort=latency, {"corrected": ...} JSON
+  → OpenRouterClient        anthropic/claude-haiku-5.5, 설정의 교정 강도별 프롬프트, provider.sort=latency, {"corrected": ...} JSON
   → CorrectionParser        JSON 추출 + 길이 비율로 "대답/번역" 응답 차단
   → 스냅샷 대조              기다리는 동안 문단이 바뀌었으면 쓰지 않음
   → TextDiff.changedSpan    공통 접두·접미를 뺀 최소 구간만
@@ -28,6 +28,7 @@
 | `Fix4me/Core/OpenRouterClient.swift` | 교정 요청 1회, 오류 원문(status·metadata.raw) 보존 |
 | `Fix4me/Core/Keychain.swift` | API 키 저장 (로그인 키체인) |
 | `Fix4me/Core/TextScope.swift`, `TextDiff.swift`, `CorrectionParser.swift` | 순수 로직 (단위 테스트 대상) |
+| `Fix4me/Core/CorrectionLevel.swift` | 교정 강도(교정·다듬기·다시 쓰기): 프롬프트 지시·길이 범위·저장 |
 | `Fix4me/UI/HUD.swift` | 포커스를 빼앗지 않는 플로팅 패널 |
 | `Fix4me/UI/SettingsView.swift` | 권한 상태·키 저장·연결 테스트 |
 
@@ -36,6 +37,7 @@
 ```bash
 ./scripts/build.sh        # xcodegen → xcodebuild → Apple Development 인증서 서명 → dist/Fix4me.app
 xcodebuild -project Fix4me.xcodeproj -scheme Fix4me -derivedDataPath build/DerivedData test
+dist/Fix4me.app/Contents/MacOS/Fix4me --compare "비교할 문장"   # 세 강도 결과 비교 (개발용)
 ```
 
 - `Fix4me.xcodeproj` 는 `project.yml` 에서 생성 (커밋 안 함).

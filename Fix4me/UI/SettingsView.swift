@@ -11,6 +11,10 @@ final class SettingsModel {
     var message: String?
     var testing = false
     var hotKeysOK = true
+    /// 교정 강도 — 바꾸면 즉시 저장, 다음 ⌃⌥F 부터 적용 (didSet 안에서 자기 대입 금지: @Observable 재귀)
+    var level = CorrectionLevel.current {
+        didSet { CorrectionLevel.save(level) }
+    }
 
     @ObservationIgnored private var pollTask: Task<Void, Never>?
 
@@ -55,7 +59,7 @@ final class SettingsModel {
             let sample = "어제 회의에서 결정된 사항을 않 지키면 문제가 됩니다."
             let started = ContinuousClock.now
             do {
-                let result = try await OpenRouterClient(apiKey: key).correct(sample)
+                let result = try await OpenRouterClient(apiKey: key).correct(sample, level: level)
                 let s = (ContinuousClock.now - started).components
                 let secs = Double(s.seconds) + Double(s.attoseconds) / 1e18
                 message = String(format: "연결 OK · %.2f초\n→ %@", secs, result)
@@ -94,6 +98,19 @@ struct SettingsView: View {
                 }
             }
 
+            Section("교정 강도") {
+                Picker("교정 강도", selection: $model.level) {
+                    ForEach(CorrectionLevel.allCases) { Text($0.title).tag($0) }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(model.level.summary)
+                    Text("예: \(model.level.example)").foregroundStyle(.secondary)
+                }
+                .font(.callout)
+            }
+
             Section("OpenRouter API 키") {
                 HStack {
                     SecureField("sk-or-…", text: $model.keyInput)
@@ -117,7 +134,7 @@ struct SettingsView: View {
             Section("단축키") {
                 LabeledContent("포커스된 입력창 교정", value: HotKeyCenter.correct.label)
                 LabeledContent("마지막 교정 되돌리기", value: HotKeyCenter.revert.label)
-                Text("선택한 텍스트가 있으면 그 부분만, 없으면 커서가 있는 문단을 교정해요.")
+                Text("선택한 텍스트가 있으면 그 부분만, 없으면 커서가 있는 문단을 위의 교정 강도로 고쳐요.")
                     .font(.caption).foregroundStyle(.secondary)
                 if !model.hotKeysOK {
                     Text("단축키 등록 실패 — 다른 앱이 같은 조합을 쓰고 있어요").foregroundStyle(.red)
@@ -131,7 +148,7 @@ struct SettingsView: View {
         .formStyle(.grouped)
         // grouped Form 은 내부가 스크롤 영역이라 스스로 높이를 정하지 않는다 → 높이를 명시 (없으면 창이 0 높이로 접힘)
         .frame(minWidth: 460, idealWidth: 520, maxWidth: .infinity,
-               minHeight: 360, idealHeight: 540, maxHeight: .infinity)
+               minHeight: 360, idealHeight: 660, maxHeight: .infinity)
         .onAppear { model.startPolling() }
         .onDisappear { model.stopPolling() }
     }

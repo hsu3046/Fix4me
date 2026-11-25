@@ -2,7 +2,7 @@ import AppKit
 import SwiftUI
 
 enum HUDState: Equatable {
-    case working
+    case working(String)   // 진행 문구 (강도별: 교정 중… / 다듬는 중…)
     case done(count: Int, preview: String, seconds: Double)
     case noChange(seconds: Double)
     case reverted
@@ -13,7 +13,7 @@ enum HUDState: Equatable {
 @MainActor
 final class HUDController {
     private let panel: NSPanel
-    private let hosting = NSHostingView(rootView: HUDView(state: .working))
+    private let hosting = NSHostingView(rootView: HUDView(state: .working("")))
     private var hideTask: Task<Void, Never>?
 
     init() {
@@ -50,7 +50,7 @@ final class HUDController {
         panel.orderFrontRegardless()
 
         hideTask?.cancel()
-        guard state != .working else { return }
+        if case .working = state { return }   // 진행 중에는 자동으로 숨기지 않는다
         var delay: Duration = .seconds(2.5)
         if case .error = state { delay = .seconds(4) } // 오류는 읽을 시간을 더 준다
         hideTask = Task { [weak self] in
@@ -100,7 +100,7 @@ private struct HUDView: View {
 
     private var title: String {
         switch state {
-        case .working: "교정 중…"
+        case let .working(title): title
         case let .done(count, _, s): "\(count)곳 고쳤어요 · \(String(format: "%.1f", s))초"
         case let .noChange(s): "고칠 곳이 없어요 · \(String(format: "%.1f", s))초"
         case .reverted: "원래대로 되돌렸어요"

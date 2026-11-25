@@ -40,11 +40,11 @@ enum CorrectionParser {
 
     /// 교정이 아니라 "대답"이나 "번역"을 내놓은 경우를 길이로 거른다.
     /// 짧은 글은 절대 차이, 긴 글은 비율로 판정.
-    static func isPlausible(original: String, corrected: String) -> Bool {
+    static func isPlausible(original: String, corrected: String, level: CorrectionLevel = .proofread) -> Bool {
         let o = original.count, c = corrected.count
         guard c > 0 else { return false }
-        if o < 20 { return abs(o - c) <= 12 }
-        let ratio = Double(c) / Double(o)
-        return ratio >= 0.6 && ratio <= 1.5
+        let bounds = level.lengthBounds
+        if o < 20 { return abs(o - c) <= bounds.shortDelta }
+        return bounds.ratio.contains(Double(c) / Double(o))
     }
 }

@@ -61,18 +61,19 @@ final class CorrectionController {
 
         let anchor = AXText.screenRect(of: target, in: field.element)
         let original = (field.value as NSString).substring(with: target)
-        hud.show(.working, near: anchor)
+        let level = CorrectionLevel.current   // 설정에서 고른 강도 (누를 때마다 읽어 즉시 반영)
+        hud.show(.working(level.workingTitle), near: anchor)
 
         let started = ContinuousClock.now
         let corrected: String
         do {
-            corrected = try await OpenRouterClient(apiKey: key).correct(original)
+            corrected = try await OpenRouterClient(apiKey: key).correct(original, level: level)
         } catch {
             hud.show(.error(error.localizedDescription), near: anchor)
             return
         }
         let elapsed = ContinuousClock.now - started
-        log.info("corrected len=\(original.count) in \(elapsed.components.seconds)s")
+        log.info("corrected level=\(level.rawValue) len=\(original.count) in \(elapsed.components.seconds)s")
 
         guard let span = TextDiff.changedSpan(old: original, new: corrected) else {
             hud.show(.noChange(seconds: elapsed.seconds), near: anchor)

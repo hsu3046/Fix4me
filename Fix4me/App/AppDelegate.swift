@@ -82,7 +82,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             window.styleMask = [.titled, .closable, .resizable]
             window.isReleasedWhenClosed = false
             // 내용의 fitting size 에 기대지 않고 첫 크기를 명시 (SettingsView 의 ideal 크기와 같게)
-            window.setContentSize(NSSize(width: 520, height: 540))
+            window.setContentSize(NSSize(width: 520, height: 660))
             window.contentMinSize = NSSize(width: 460, height: 360)
             settingsWindow = window
         }
