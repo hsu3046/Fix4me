@@ -9,7 +9,7 @@ struct Fix4meiOSApp: App {
 
 struct ContentView: View {
     @Environment(\.openURL) private var openURL
-    @State private var level = CorrectionLevel.current
+    @State private var tab = LevelTab.current
     @State private var dictionary = SharedStore.dictionaryText
     @State private var key = ""
     @State private var savedHint = Self.keyHint()
@@ -53,9 +53,9 @@ struct ContentView: View {
                     Text("키보드를 열 때 커서가 있는 글을 OpenRouter 로 보내요. 키는 이 iPhone 의 키체인에만 저장해요.")
                 }
                 Section("교정 강도") {
-                    Picker("교정 강도", selection: $level) { ForEach(CorrectionLevel.allCases) { Text($0.title).tag($0) } }
+                    Picker("교정 강도", selection: $tab) { ForEach(LevelTab.all, id: \.self) { Text($0.title).tag($0) } }
                         .pickerStyle(.segmented).labelsHidden()
-                        .onChange(of: level) { settingsFailed = !CorrectionLevel.save(level) }
+                        .onChange(of: tab) { settingsFailed = !tab.save() }
                 }
                 Section("개인 사전") {
                     TextField("고치지 않을 단어를 한 줄에 하나씩", text: $dictionary, axis: .vertical).lineLimit(3...8)
@@ -71,7 +71,7 @@ struct ContentView: View {
             }
             .navigationTitle("Fix4me")
             .scrollDismissesKeyboard(.interactively)
-            .onAppear { level = CorrectionLevel.current }
+            .onAppear { tab = .current }
         }
     }
 

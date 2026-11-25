@@ -678,6 +678,19 @@ final class CorrectionParserTests: XCTestCase {
         XCTAssertFalse(OpenRouterClient.systemPrompt(for: .polish).contains("Do not rephrase text that is already correct"))
     }
 
+    func testOffTabRemembersTheLevel() {
+        let name = "Fix4meTests.tab", d = UserDefaults(suiteName: name)!
+        defer { d.removePersistentDomain(forName: name) }
+        XCTAssertEqual(LevelTab.load(from: d), .level(.proofread), "처음에는 켜져 있다")
+        LevelTab.level(.polish).save(to: d)
+        LevelTab.off.save(to: d)
+        XCTAssertEqual(LevelTab.load(from: d), .off)
+        XCTAssertEqual(CorrectionLevel.load(from: d), .polish, "꺼도 강도는 기억")
+        LevelTab.level(.load(from: d)).save(to: d)
+        XCTAssertEqual(LevelTab.load(from: d), .level(.polish))
+        XCTAssertEqual(LevelTab.all.map(\.title), ["끄기", "문법 교정", "문장 개선", "다시 쓰기"])
+    }
+
     func testUnknownStoredLevelFallsBackToProofread() {
         // 앱의 실제 설정을 건드리지 않도록 따로 만든 저장소를 쓴다
         let name = "Fix4meTests.level", d = UserDefaults(suiteName: name)!

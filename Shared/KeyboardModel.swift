@@ -6,6 +6,7 @@ import Observation
 @Observable
 final class KeyboardModel {
     enum State: Equatable {
+        case off
         case needsFullAccess
         case needsKey
         case reading
@@ -28,10 +29,10 @@ final class KeyboardModel {
     static func forget() { applied = nil; reverted = nil }
 
     private(set) var state = State.reading
-    var level: CorrectionLevel {
+    var tab: LevelTab {
         didSet {
-            guard level != oldValue else { return }
-            environment.saveLevel(level)
+            guard tab != oldValue else { return }
+            environment.saveTab(tab)
             run()
         }
     }
@@ -41,15 +42,19 @@ final class KeyboardModel {
     @ObservationIgnored private var task: Task<Void, Never>?
     @ObservationIgnored private var text: KeyboardText?
     @ObservationIgnored private var target: KeyboardText.Target?
-    @ObservationIgnored private var touching = false    // 우리가 커서를 옮기거나 쓰는 중
+    @ObservationIgnored private var touching = 0        // 우리가 커서를 옮기거나 쓰는 중
+    @ObservationIgnored private var applying = false
+    @ObservationIgnored private var last: Task<Void, Never>?
     @ObservationIgnored private var isOpen = false
 
     /// 키보드 밖의 것들 (시험에서는 바꿔 끼운다)
     struct Environment {
         var hasFullAccess: () -> Bool
         var hasKey: () -> Bool
-        var loadLevel: () -> CorrectionLevel = { .current }
-        var saveLevel: (CorrectionLevel) -> Void = { CorrectionLevel.save($0) }
+        var loadTab: () -> LevelTab = { .current }
+        var saveTab: (LevelTab) -> Void = { $0.save() }
+        /// 껐다 켤 때 돌아갈 강도
+        var lastLevel: () -> CorrectionLevel = { .current }
         var correct: (KeyboardText.Target, CorrectionLevel) async throws -> String
         /// "고칠 곳이 없어요" 를 보여 주는 시간
         var showNoChange: () async -> Void = { try? await Task.sleep(for: .milliseconds(800)) }
@@ -59,13 +64,13 @@ final class KeyboardModel {
         self.session = session
         self.environment = environment
         self.close = close
-        level = environment.loadLevel()
+        tab = environment.loadTab()
     }
 
     /// 키보드가 열릴 때
     func open() {
         isOpen = true
-        level = environment.loadLevel()   // 앱에서 바꾼 강도 (바뀌었으면 아래에서 다시 시작한다)
+        tab = environment.loadTab()   // 앱에서 바꾼 강도 (바뀌었으면 아래에서 다시 시작한다)
         run(opening: true)
     }
 
@@ -81,7 +86,7 @@ final class KeyboardModel {
 
     /// 우리가 한 일이 아닌 변경: 보여 준 결과가 더는 맞지 않는다
     func textMayHaveChanged() {
-        guard !touching, case .result = state else { return }
+        guard touching == 0, case .result = state else { return }
         guard session.proxy.selected == (text?.selected ?? ""), KeyboardSession.agrees(session.proxy.before, withEndOf: text?.before ?? "") else {
             return state = .error(KeyboardError.changed.localizedDescription)
         }
@@ -90,17 +95,16 @@ final class KeyboardModel {
     /// - Parameter opening: 키보드를 막 열었다. 커서 앞이 방금 고친 글이면 되돌리기를 보이고, 문법 교정은 바로 적용한다
     func run(opening: Bool = false) {
         task?.cancel()
+        guard let level = tab.level else { return state = .off }
         guard environment.hasFullAccess() else { return state = .needsFullAccess }
         guard environment.hasKey() else { return state = .needsKey }
         state = .reading
-        task = Task { await correct(opening: opening) }
+        task = Task { await correct(level, opening: opening) }
     }
 
-    private func correct(opening: Bool) async {
+    private func correct(_ level: CorrectionLevel, opening: Bool) async {
         do {
-            touching = true
-            defer { touching = false }
-            let read = try await session.read()
+            let read = try await exclusively { [session] in try await session.read() }
             guard !Task.isCancelled else { return }
             text = read
             if opening, let applied = Self.applied, read.selected.isEmpty, read.before.hasSuffix(applied.corrected) {
@@ -112,7 +116,6 @@ final class KeyboardModel {
             return
         }
         guard let target else { return state = .empty }
-        let level = self.level
         state = .working(level.workingTitle)
         do {
             let corrected = try await environment.correct(target, level)
@@ -132,12 +135,12 @@ final class KeyboardModel {
     }
 
     func apply() {
-        guard !touching, case let .result(original, corrected) = state, let text, let target else { return }
-        touching = true
+        guard !applying, case let .result(original, corrected) = state, let text, let target else { return }
+        applying = true
         Task {
-            defer { touching = false }
+            defer { applying = false }
             do {
-                try await session.apply(target, in: text, corrected: corrected)
+                try await exclusively { [session] in try await session.apply(target, in: text, corrected: corrected) }
                 Self.applied = Applied(original: original, corrected: corrected)
                 Self.reverted = nil
                 state = .applied
@@ -150,15 +153,17 @@ final class KeyboardModel {
 
     /// 커서 바로 앞이 고친 글일 때만 되돌린다
     func revert() {
-        guard !touching, let applied = Self.applied else { return }
-        touching = true
+        guard !applying, let applied = Self.applied else { return }
+        applying = true
         Task {
-            defer { touching = false }
+            defer { applying = false }
             do {
-                let read = try await session.read()
-                guard read.before.hasSuffix(applied.corrected) else { throw KeyboardError.changed }
-                let target = KeyboardText.Target(text: applied.corrected, context: "", forward: "", backward: "", isSelection: false)
-                try await session.apply(target, in: read, corrected: applied.original)
+                try await exclusively { [session] in
+                    let read = try await session.read()
+                    guard read.before.hasSuffix(applied.corrected) else { throw KeyboardError.changed }
+                    let target = KeyboardText.Target(text: applied.corrected, context: "", forward: "", backward: "", isSelection: false)
+                    try await session.apply(target, in: read, corrected: applied.original)
+                }
                 Self.applied = nil
                 Self.reverted = applied.original
                 leave()
@@ -173,5 +178,20 @@ final class KeyboardModel {
         run()
     }
 
+    func turnOn() { tab = .level(environment.lastLevel()) }
+
     func finish() { leave() }
+
+    /// 커서를 옮기는 일은 한 번에 하나씩. 취소돼도 하던 이동은 끝내고 커서를 제자리에 돌려놓는다.
+    private func exclusively<T: Sendable>(_ work: @escaping @MainActor () async throws -> T) async throws -> T {
+        let previous = last
+        let mine = Task {
+            await previous?.value
+            touching += 1
+            defer { touching -= 1 }
+            return try await work()
+        }
+        last = Task { _ = try? await mine.value }
+        return try await mine.value
+    }
 }

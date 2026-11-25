@@ -13,9 +13,10 @@ final class SettingsModel {
     var testing = false
     var hotKeysOK = true
     /// 교정 강도 — 바꾸면 즉시 저장, 다음 교정부터 적용 (didSet 안에서 자기 대입 금지: @Observable 재귀)
-    var level = CorrectionLevel.current {
-        didSet { CorrectionLevel.save(level) }
+    var tab = LevelTab.current {
+        didSet { tab.save() }
     }
+    var isOn: Bool { tab.level != nil }
 
     var scope = Prefs.scope { didSet { Prefs.scope = scope } }
     var precompute = Prefs.precompute { didSet { Prefs.precompute = precompute } }
@@ -111,7 +112,7 @@ final class SettingsModel {
             let sample = "어제 회의에서 결정된 사항을 않 지키면 문제가 됩니다."
             let started = ContinuousClock.now
             do {
-                let result = try await OpenRouterClient(apiKey: key).correct(sample, level: level)
+                let result = try await OpenRouterClient(apiKey: key).correct(sample, level: CorrectionLevel.current)
                 let s = (ContinuousClock.now - started).components
                 let secs = Double(s.seconds) + Double(s.attoseconds) / 1e18
                 message = result.isEmpty ? "응답이 비어 있어요" : String(format: "연결됨 · %.1f초", secs)
@@ -139,13 +140,15 @@ struct SettingsView: View {
         VStack(spacing: 14) {
             if !model.axTrusted { permission }
             group("교정 강도") {
-                FullWidthSegments(items: CorrectionLevel.allCases.map { ($0.title, $0.summary) }, selection: index($model.level))
+                FullWidthSegments(items: LevelTab.all.map { ($0.title, $0.summary) }, selection: Binding(
+                    get: { LevelTab.all.firstIndex(of: model.tab) ?? 0 }, set: { model.tab = LevelTab.all[$0] }
+                ))
             }
             group("교정 범위") {
                 FullWidthSegments(items: ScopeMode.allCases.map { ($0.title, $0.summary) }, selection: index($model.scope))
             }
             // 같은 줄의 두 카드는 높이가 같다
-            pair { precompute } _: { dictionary }
+            pair { precompute.disabled(!model.isOn).opacity(model.isOn ? 1 : 0.5) } _: { dictionary }
             pair { shortcuts } _: { history }
             connection
         }

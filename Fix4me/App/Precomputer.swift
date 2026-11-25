@@ -78,7 +78,7 @@ final class Precomputer {
 
     private func tick() {
         guard !suspended else { return }
-        guard Prefs.precompute, let app = NSWorkspace.shared.frontmostApplication,
+        guard Self.isOn, let app = NSWorkspace.shared.frontmostApplication,
               app.processIdentifier != ProcessInfo.processInfo.processIdentifier,
               !Prefs.excluded.contains(app.bundleIdentifier ?? "") else { return reset() }
         let id = app.bundleIdentifier ?? "?"
@@ -140,9 +140,14 @@ final class Precomputer {
         showIndicator(targets, field: field, level: level, app: id)
     }
 
+    private static var isOn: Bool { SharedStore.isOn && Prefs.precompute }
+
     private func reset() {
         current = nil
-        if !Prefs.precompute { fields.removeAll() }   // 끄면 기억한 글도 버린다
+        if !Self.isOn {   // 끄면 기억한 글도 버린다 → 끈 동안 쓴 글은 다시 켜도 보내지 않는다
+            fields.removeAll()
+            requested = nil
+        }
         indicator.hide()
     }
 
@@ -179,7 +184,7 @@ final class Precomputer {
                         group.addTask { await self.request(text, level: level, context: context) }
                     }
                 }
-                guard Date.now >= pausedUntil else { return }
+                guard Date.now >= pausedUntil, Self.isOn else { return }
             }
         }
         return true
@@ -196,6 +201,7 @@ final class Precomputer {
             case .missingKey: pause = 300
             case let .http(status, _) where [401, 402, 403].contains(status): pause = 300
             case .http(429, _): pause = 60
+            case .off: return
             case .implausible, .badResponse, .emptyResponse: pause = 0   // 이 글만의 문제
             default: break
             }

@@ -12,6 +12,8 @@ final class FakeField: KeyboardProxy {
     var lag = 1                       // 몇 번 기다려야 새 상태가 보이는지
     var utf16Offsets = true           // 커서 이동을 UTF-16 으로 세는 앱 (iOS 실측). 아니면 글자로 센다
     var ignoresDelete = false
+    var yields = false                // 기다리는 동안 다른 작업이 끼어들 수 있게
+    private(set) var moves = 0
     var ignoresMoves = false          // 커서 이동을 무시하는 앱. 실측: 키보드에는 옮긴 것처럼 예측이 먼저 보이고, 앱의 응답이 나중에 온다
     var altersInsertLate = false
     var altersInsert = false          // 넣은 글을 앱이 바꿔 버리는 경우 (글자 수 제한 등)
@@ -54,6 +56,7 @@ final class FakeField: KeyboardProxy {
     var after: String { shown.1 }
     var selected: String { selection.map { String(Array(string)[$0]) } ?? "" }
     func move(by offset: Int) {
+        moves += 1
         if ignoresMoves {
             let real = at
             at = min(max(0, at + offset), units.count); shown = visible; at = real
@@ -90,6 +93,7 @@ final class FakeField: KeyboardProxy {
         touched()
     }
     func pause() async {
+        if yields { await Task.yield() }
         if pending > 0 { pending -= 1 }
         if pending == 0 { shown = visible }
     }

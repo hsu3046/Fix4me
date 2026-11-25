@@ -60,6 +60,7 @@
 | 경로 | 역할 |
 |---|---|
 | `Shared/KeyboardDocument.swift` | 읽기·쓰기 로직 (`KeyboardProxy` 로 시험 가능, `Fix4meTests/KeyboardTests.swift`) |
+| `Shared/LevelTab.swift` | 강도 탭(끄기 + 강도 셋), 껐다 켜도 강도를 기억. Mac 설정·iPhone 앱·키보드가 함께 쓴다 |
 | `Shared/KeyboardModel.swift` | 키보드의 상태와 흐름 (자동 적용·되돌리기·닫힘 처리, `Fix4meTests/KeyboardModelTests.swift`) |
 | `Fix4meiOS/Keyboard/` | 키보드 확장: 컨트롤러, 화면, 교정 요청(`KeyboardCorrector`) |
 | `Fix4meiOS/App/` | 설정 앱: 키보드 켜기 안내, API 키, 강도, 개인 사전, 써 보기 |

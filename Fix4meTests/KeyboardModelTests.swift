@@ -4,7 +4,8 @@ import XCTest
 @MainActor
 final class KeyboardModelTests: XCTestCase {
     private var closes = 0
-    private var level = CorrectionLevel.proofread
+    private var tab = LevelTab.level(.proofread)
+    private var level: CorrectionLevel { get { tab.level! } set { tab = .level(newValue) } }
     private var asked = 0
     /// 교정 응답을 붙잡아 둔다
     private var gate: CheckedContinuation<Void, Never>?
@@ -19,7 +20,7 @@ final class KeyboardModelTests: XCTestCase {
             session: KeyboardSession(proxy: f),
             environment: .init(
                 hasFullAccess: { access }, hasKey: { key },
-                loadLevel: { [unowned self] in level }, saveLevel: { [unowned self] in level = $0 },
+                loadTab: { [unowned self] in tab }, saveTab: { [unowned self] in tab = $0 }, lastLevel: { .proofread },
                 correct: { [unowned self] target, _ in
                     asked += 1
                     if held { await withCheckedContinuation { gate = $0 } }
@@ -64,7 +65,7 @@ final class KeyboardModelTests: XCTestCase {
         let f = FakeField("이건 않 돼요."), m = make(f)
         m.open()
         await wait("미리보기") { if case .result = m.state { true } else { false } }
-        m.level = .proofread
+        m.tab = .level(.proofread)
         await wait("다시 교정") { asked == 2 && { if case .result = m.state { true } else { false } }() }
         await settle()
         XCTAssertEqual(f.string, "이건 않 돼요."); XCTAssertEqual(closes, 0)
@@ -120,6 +121,60 @@ final class KeyboardModelTests: XCTestCase {
         gate?.resume()
         await wait("오류") { if case .error = m.state { true } else { false } }
         XCTAssertEqual(f.string, "이건 않 돼요. 추가"); XCTAssertEqual(closes, 0)
+    }
+
+    // MARK: - 끄기
+
+    func testOffReadsAndSendsNothing() async {
+        tab = .off
+        let f = FakeField("이건 않 돼요."), m = make(f)
+        m.open()
+        await settle()
+        XCTAssertEqual(m.state, .off); XCTAssertEqual(asked, 0); XCTAssertEqual(f.moves, 0)
+        XCTAssertEqual(f.string, "이건 않 돼요."); XCTAssertEqual(closes, 0)
+        m.finish(); XCTAssertEqual(closes, 1)
+    }
+
+    func testTurningOnShowsThePreview() async {
+        tab = .off
+        let f = FakeField("이건 않 돼요."), m = make(f)
+        m.open(); m.turnOn()
+        await wait("미리보기") { if case .result = m.state { true } else { false } }
+        XCTAssertEqual(tab, .level(.proofread)); XCTAssertEqual(f.string, "이건 않 돼요.")
+    }
+
+    func testTurningOffWhileWaitingChangesNothing() async {
+        held = true
+        let f = FakeField("이건 않 돼요."), m = make(f)
+        m.open()
+        await wait("요청") { gate != nil }
+        m.tab = .off
+        gate?.resume()
+        await settle()
+        XCTAssertEqual(m.state, .off); XCTAssertEqual(f.string, "이건 않 돼요."); XCTAssertEqual(closes, 0)
+    }
+
+    /// 읽는 도중에 끄거나 강도를 바꿔도 커서는 제자리, 두 작업이 커서를 함께 움직이지 않는다
+    func testChangingTabsWhileReadingKeepsTheCursor() async {
+        for tabs: [LevelTab] in [[.off], [.level(.rewrite)], [.off, .level(.polish)], [.level(.polish), .level(.rewrite), .off]] {
+            for steps in 0..<40 {
+                tab = .level(.polish); closes = 0
+                let text = "앞 문장입니다. 이건 않 돼요. 뒤 문장입니다."
+                let f = FakeField(text, cursor: 9); f.yields = true; f.lag = 2
+                let m = make(f)
+                m.open()
+                for _ in 0..<steps { await Task.yield() }
+                for t in tabs { m.tab = t; await Task.yield() }
+                await wait("끝") { tabs.last == .off ? m.state == .off : { if case .result = m.state { true } else { false } }() }
+                for _ in 0..<600 { await Task.yield() }
+                XCTAssertEqual(f.cursor, 9, "\(tabs) \(steps)"); XCTAssertEqual(f.string, text)
+                if tabs.last != .off {
+                    m.apply()
+                    await wait("적용") { closes == 1 }
+                    XCTAssertEqual(f.string, text.replacingOccurrences(of: "않 ", with: "안 "))
+                }
+            }
+        }
     }
 
     func testDoubleTapOnApplyWritesOnce() async {

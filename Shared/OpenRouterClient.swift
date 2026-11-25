@@ -2,6 +2,7 @@ import Foundation
 
 enum CorrectionError: LocalizedError {
     case missingKey
+    case off
     case http(status: Int, message: String)
     case network(String)
     case badResponse(String)
@@ -10,6 +11,7 @@ enum CorrectionError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
+        case .off: "교정이 꺼져 있어요 — 설정에서 켜 주세요"
         case .missingKey: "OpenRouter 키가 없어요 (설정에서 저장)"
         case let .http(status, message): "OpenRouter 오류 \(status): \(message)"
         case let .network(message): "네트워크 오류: \(message)"

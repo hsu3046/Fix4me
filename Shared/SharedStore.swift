@@ -24,6 +24,7 @@ struct KeychainSettings: SettingsStore {
 enum SharedStore {
     private static let dictionaryKey = "personalDictionary"
     private static let stubKey = "stubCorrections"
+    private static let offKey = "correctionOff"
 
     static var store: any SettingsStore {
         #if os(iOS)
@@ -36,6 +37,11 @@ enum SharedStore {
     /// 개인 사전 (입력한 그대로의 글)
     static var dictionaryText: String { store.string(forKey: dictionaryKey) ?? "" }
     @discardableResult static func saveDictionary(_ text: String) -> Bool { store.save(text, forKey: dictionaryKey) }
+
+    /// 교정을 켜 두었는지 (저장된 적이 없으면 켜짐). 끄면 아무것도 보내지 않는다
+    static var isOn: Bool { isOn(in: store) }
+    static func isOn(in store: any SettingsStore) -> Bool { store.string(forKey: offKey) != "1" }
+    static func saveOn(_ on: Bool, to store: any SettingsStore = store) -> Bool { store.save(on ? "0" : "1", forKey: offKey) }
 
     /// 시험용 가짜 교정 (디버그 빌드에서만 쓴다)
     static var stubCorrections: Bool {

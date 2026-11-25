@@ -15,6 +15,7 @@ final class CorrectionService {
     }
 
     func correct(_ text: String, level: CorrectionLevel, before: String) async throws -> String {
+        guard SharedStore.isOn else { throw CorrectionError.off }
         let dictionary = Prefs.dictionary
         let key = CorrectionCache.Key(level: level, text: text, dictionary: dictionary)
         if let hit = cache.value(for: key) { return hit }
@@ -26,6 +27,7 @@ final class CorrectionService {
             try await CorrectionPipeline.run(text, level: level) { input, stage in
                 // 마지막이 아닌 단계(다시 쓰기 앞의 교정)는 캐시·진행 중 요청을 함께 쓴다
                 if stage != level { return try await correct(input, level: stage, before: before) }
+                guard SharedStore.isOn else { throw CorrectionError.off }   // 앞 단계를 기다리는 동안 껐을 수 있다
                 return try await client.correct(input, level: stage, before: before, dictionary: dictionary)
             }
         }

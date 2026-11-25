@@ -5,8 +5,8 @@ struct KeyboardView: View {
 
     var body: some View {
         VStack(spacing: 10) {
-            Picker("교정 강도", selection: $model.level) {
-                ForEach(CorrectionLevel.allCases) { Text($0.title).tag($0) }
+            Picker("교정 강도", selection: $model.tab) {
+                ForEach(LevelTab.all, id: \.self) { Text($0.title).tag($0) }
             }
             .pickerStyle(.segmented)
             .disabled(isBlocked)
@@ -23,6 +23,8 @@ struct KeyboardView: View {
 
     @ViewBuilder private var content: some View {
         switch model.state {
+        case .off:
+            notice("pause.circle", "교정이 꺼져 있어요", nil)
         case .needsFullAccess:
             notice("lock", "전체 접근 허용이 필요해요", "설정 → Fix4me → 키보드에서 켜 주세요. 교정하려면 인터넷을 써야 해요.")
         case .needsKey:
@@ -61,6 +63,9 @@ struct KeyboardView: View {
     @ViewBuilder private var buttons: some View {
         HStack(spacing: 10) {
             switch model.state {
+            case .off:
+                big("닫기", prominent: false) { model.finish() }
+                big("켜기", prominent: true) { model.turnOn() }
             case .result:
                 big("닫기", prominent: false) { model.finish() }
                 big("적용", prominent: true) { model.apply() }

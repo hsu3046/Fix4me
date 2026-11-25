@@ -124,7 +124,7 @@ Type with your usual keyboard, hold 🌐 and pick Fix4me. It reads the section a
 
 | Setting | Options |
 |---------|---------|
-| Strength (교정 강도) | Proofread · Polish · Rewrite |
+| Strength (교정 강도) | Off · Proofread · Polish · Rewrite (also on iPhone). *Off* sends nothing and changes nothing |
 | Scope (교정 범위) | Automatic · Section at cursor · All sections |
 | Shortcut (단축키) | Double-tap `⌥` or `⌃⌥F`; only the chosen one is active |
 | Background preparation (미리 교정) | On/off, bar on/off, excluded apps |

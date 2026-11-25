@@ -52,6 +52,7 @@ final class CorrectionController {
     // MARK: - 교정
 
     private func runCorrection() async {
+        guard SharedStore.isOn else { return hud.show(.error(CorrectionError.off.localizedDescription), near: nil) }
         let field: FocusedText
         do {
             field = try await AXText.focused()
