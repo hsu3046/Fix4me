@@ -71,6 +71,9 @@ struct KeyboardSession {
     /// 한쪽으로 읽을 최대 글자 수와 걸음 수 (한 걸음이 수십 ms 걸린다)
     var maxCharacters = 600
     var maxSteps = 14
+    /// 실패로 판정하기 전에 기다리는 횟수 (약 1초). 맞으면 바로 끝나므로 평소에는 느려지지 않는다
+    var patience = 50
+
     init(proxy: any KeyboardProxy) { self.proxy = proxy }
 
     /// 커서 이동은 UTF-16 으로 센다 (iOS 실측: 글자 수로 옮기면 이모지 가운데에 놓인다).
@@ -157,7 +160,7 @@ struct KeyboardSession {
     private func goHome(_ home: Snapshot, undo text: String, forward: Bool) async throws {
         guard !text.isEmpty else { return }
         move(over: text, forward: !forward)
-        for _ in 0..<15 {
+        for _ in 0..<patience {
             if snapshot == home { return }
             await proxy.pause()
         }
@@ -165,7 +168,7 @@ struct KeyboardSession {
     }
 
     private func settled(to target: Snapshot) async -> Bool {
-        for _ in 0..<12 {
+        for _ in 0..<patience {
             if snapshot == target { return true }
             await proxy.pause()
         }
@@ -187,6 +190,7 @@ struct KeyboardSession {
         if target.isSelection {
             guard proxy.selected == target.text else { throw KeyboardError.changed }
             proxy.insert(corrected)
+            await letAppAnswer()
             guard await before(endsWith: corrected) else { throw KeyboardError.mismatch }
             return
         }
@@ -204,7 +208,7 @@ struct KeyboardSession {
         let keep = String(old[0..<prefix]), tail = String(old[(old.count - suffix)...])
 
         let offset = length(target.forward) - length(target.backward) - length(tail)
-        if offset != 0 { proxy.move(by: offset) }
+        if offset != 0 { proxy.move(by: offset); await letAppAnswer() }
         guard await before(endsWith: keep + deleted) else {
             if offset != 0 { proxy.move(by: -offset) }
             throw KeyboardError.notFound
@@ -214,13 +218,19 @@ struct KeyboardSession {
             throw KeyboardError.mismatch
         }
         if !inserted.isEmpty { proxy.insert(inserted) }
-        guard await before(endsWith: keep + inserted) else { throw KeyboardError.mismatch }
         if suffix > 0 { proxy.move(by: length(tail)) }
+        await letAppAnswer()
+        guard await before(endsWith: keep + inserted + tail) else { throw KeyboardError.mismatch }
+    }
+
+    /// iOS 는 옮기고 고친 결과를 앱의 응답이 오기 전에 예측해서 보여 준다(실측: 0ms). 앱의 실제 응답(약 20ms)을 기다린 뒤에 확인해야 한다.
+    private func letAppAnswer() async {
+        for _ in 0..<3 { await proxy.pause() }
     }
 
     /// 커서 앞 글이 expected 로 끝날 때까지 기다린다. 앱은 앞 글의 일부만 보여 주므로 보이는 만큼 대조한다.
     private func before(endsWith expected: String) async -> Bool {
-        for _ in 0..<15 {
+        for _ in 0..<patience {
             if Self.agrees(proxy.before, withEndOf: expected), expected.isEmpty || !proxy.before.isEmpty || expected.hasSuffix("\n") { return true }
             await proxy.pause()
         }

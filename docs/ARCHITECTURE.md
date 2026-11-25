@@ -1,6 +1,6 @@
-# Fix4me 아키텍처 (Mac, 미리 교정 + 단축키)
+# Fix4me 아키텍처 (Mac 앱 + iPhone 키보드)
 
-포커스된 입력창을 **클릭 없이 단축키 한 번으로** 교정하는 macOS 메뉴 막대 앱. 본인 전용(배포 안 함).
+포커스된 입력창을 **클릭 없이 단축키 한 번으로** 교정하는 macOS 앱과, 쓰던 자리에서 고치는 iPhone 교정 키보드. 본인 전용(배포 안 함).
 
 ## 흐름
 
@@ -27,23 +27,52 @@
 | `Fix4me/Core/AXText.swift` | Accessibility 읽기·쓰기·좌표, 붙여넣기 대체 경로 |
 | `Fix4me/Core/DoubleTap.swift` | ⌥ 두 번 누르기 판정(순수 로직)과 시스템 전체 감시 (키를 가로채지 않음) |
 | `Fix4me/Core/HotKeyCenter.swift` | Carbon `RegisterEventHotKey` 래퍼 |
-| `Fix4me/Core/OpenRouterClient.swift` | 교정 요청 1회, 오류 원문(status·metadata.raw) 보존 |
+| `Shared/OpenRouterClient.swift` | 교정 요청 1회, 오류 원문(status·metadata.raw) 보존 |
 | `Fix4me/App/Precomputer.swift` | 미리 교정: 0.3초마다 감시, 0.6초 멈추면 요청, 표시 (분당 30건 상한, 오류 시 쉼) |
 | `Fix4me/App/CorrectionService.swift`, `Core/CorrectionCache.swift` | 결과 캐시(메모리, 300개)와 진행 중 요청 공유 |
-| `Fix4me/Core/CorrectionPipeline.swift` | 강도별 호출 순서. 다시 쓰기는 교정 → 다시 쓰기 (교정 결과는 캐시 공유, 분당 상한에는 2건으로 셈) |
+| `Shared/CorrectionPipeline.swift` | 강도별 호출 순서. 다시 쓰기는 교정 → 다시 쓰기 (교정 결과는 캐시 공유, 분당 상한에는 2건으로 셈) |
 | `Fix4me/UI/Indicator.swift`, `DiffText.swift`, `Core/IndicatorLayout.swift` | 고칠 문단 왼쪽 막대(위치를 모르면 모서리 배지), 롤오버 미리보기(원문 취소선 + 고친 글, 적용/무시) |
-| `Fix4me/Core/PersonalDictionary.swift` | 개인 사전: 프롬프트 지시 + 어긴 줄은 원문으로 |
+| `Shared/PersonalDictionary.swift` | 개인 사전: 프롬프트 지시 + 어긴 줄은 원문으로 |
 | `Fix4me/Core/History.swift`, `UI/HistoryView.swift` | 교정 기록(기본 꺼짐, 이 Mac 에만, 30일)과 보기 창 |
 | `Fix4me/Core/Evaluation.swift`, `App/DevCommands.swift`, `eval/cases.jsonl` | 채점 기준과 개발용 명령줄 |
 | `Fix4me/Core/FieldMemory.swift` | 최근 입력창 20개의 상태(메모리 전용)와 사용자의 입력/다른 글이 들어옴 구별 |
 | `Fix4me/Core/PrecomputeFilter.swift`, `Prefs.swift` | 보내지 않을 글 판정, 설정값·제외 앱 |
-| `Fix4me/Core/Keychain.swift` | API 키 저장 (로그인 키체인) |
-| `Fix4me/Core/EditorText.swift` | 입력창마다 다른 글·위치 표현 맞추기(줄바꿈·빈 줄 보정, 끼워 넣기 앵커, 조각 위치 합치기) |
-| `Fix4me/Core/Sectioner.swift` | 규칙만으로 섹션 나누기: 줄 종류 → 경계 3단계 → 크기 맞추기, 참고 문맥(가까운 제목 + 앞 덩어리) |
+| `Shared/Keychain.swift` | API 키 저장 (로그인 키체인) |
+| `Shared/EditorText.swift` | 입력창마다 다른 글·위치 표현 맞추기(줄바꿈·빈 줄 보정, 끼워 넣기 앵커, 조각 위치 합치기) |
+| `Shared/Sectioner.swift` | 규칙만으로 섹션 나누기: 줄 종류 → 경계 3단계 → 크기 맞추기, 참고 문맥(가까운 제목 + 앞 덩어리) |
 | `Fix4me/Core/TextScope.swift`, `TextDiff.swift`, `CorrectionParser.swift` | 순수 로직 (단위 테스트 대상) |
-| `Fix4me/Core/CorrectionLevel.swift` | 교정 강도(교정·다듬기·다시 쓰기): 프롬프트 지시·길이 범위·저장 |
+| `Shared/CorrectionLevel.swift` | 교정 강도(교정·다듬기·다시 쓰기): 프롬프트 지시·길이 범위·저장 |
 | `Fix4me/UI/HUD.swift` | 포커스를 빼앗지 않는 플로팅 패널 |
 | `Fix4me/UI/SettingsView.swift` | 권한 상태·키 저장·연결 테스트 |
+
+## iPhone 교정 키보드
+
+글자판은 없다. 평소 키보드로 쓰고 🌐 로 Fix4me 를 열면 커서가 있는 섹션을 교정해 보여 주고, **적용**을 누르면 고친 뒤 쓰던 키보드로 돌아간다.
+
+```
+열림 → KeyboardSession.read()   커서를 옮기며 앞뒤를 읽고 제자리로 (섹션 경계·600자·14걸음까지)
+     → KeyboardText.target()    선택한 글 > 커서가 있는 섹션 > 바로 앞 섹션
+     → CorrectionPipeline       Mac 과 같은 교정 코드 (Shared)
+     → 미리보기                  원문 취소선 + 고친 글
+적용 → KeyboardSession.apply()  글이 그대로인지 → 옮긴 자리가 맞는지 → 바뀐 부분만 지우고 넣기 → 결과 확인
+```
+
+| 경로 | 역할 |
+|---|---|
+| `Shared/KeyboardDocument.swift` | 읽기·쓰기 로직 (`KeyboardProxy` 로 시험 가능, `Fix4meTests/KeyboardTests.swift`) |
+| `Fix4meiOS/Keyboard/` | 키보드 확장: 컨트롤러, 상태(`KeyboardModel`), 화면 |
+| `Fix4meiOS/App/` | 설정 앱: 키보드 켜기 안내, API 키, 강도, 개인 사전, 써 보기 |
+| `Fix4meiOS/Support/` | Info.plist·entitlements (앱 그룹과 키체인 공유) |
+
+- 키는 공유 키체인, 강도·사전은 앱 그룹. 네트워크와 공유 저장소 때문에 **전체 접근 허용**이 필요하다.
+- DEBUG 의 "가짜 교정"은 전송 없이 정해 둔 교정을 보여 준다(키 없이 화면 확인용).
+
+iOS 실측(시뮬레이터 27.0):
+- 커서 앞뒤 글은 문장 단위로 일부만 보이고, 문장·줄 끝에서는 뒤가 비어 보인다 → 한 칸 넘어가 본다.
+- 커서 이동은 **UTF-16** 단위. 글자 수로 옮기면 이모지 가운데에 놓여 글이 `�` 로 깨져 보인다.
+- 이동·삭제·입력의 결과는 **앱의 응답 전에 예측값으로 먼저 보인다(0ms)**. 실제 응답은 약 20ms 뒤 → 60ms 기다린 다음 확인한다.
+- 키보드를 열 때마다 컨트롤러가 새로 만들어진다 → 되돌리기 정보는 프로세스에 둔다.
+- 읽기는 짧은 글도 약 0.6초 (글의 양 끝인지 확인하느라 각 0.25초 기다림).
 
 ## 빌드
 
@@ -64,7 +93,7 @@ dist/Fix4me.app/Contents/MacOS/Fix4me --evaluate-history                      # 
 ## 다음 단계
 
 1. 앱별 쓰기 방식 기억 (AX 직접 쓰기가 안 되는 앱은 처음부터 붙여넣기)
-2. iPhone (키보드 툴바 버튼 / 뒷면 탭 단축어)
+2. iPhone 실기기 확인 (읽는 속도, 앱별 동작)
 
 ## 미리 교정 규칙
 

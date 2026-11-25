@@ -12,6 +12,8 @@ final class FakeField: KeyboardProxy {
     var lag = 1                       // 몇 번 기다려야 새 상태가 보이는지
     var utf16Offsets = true           // 커서 이동을 UTF-16 으로 세는 앱 (iOS 실측). 아니면 글자로 센다
     var ignoresDelete = false
+    var ignoresMoves = false          // 커서 이동을 무시하는 앱. 실측: 키보드에는 옮긴 것처럼 예측이 먼저 보이고, 앱의 응답이 나중에 온다
+    var altersInsertLate = false
     var altersInsert = false          // 넣은 글을 앱이 바꿔 버리는 경우 (글자 수 제한 등)
     private var shown: (String, String) = ("", "")
     private var pending = 0
@@ -52,6 +54,12 @@ final class FakeField: KeyboardProxy {
     var after: String { shown.1 }
     var selected: String { selection.map { String(Array(string)[$0]) } ?? "" }
     func move(by offset: Int) {
+        if ignoresMoves {
+            let real = at
+            at = min(max(0, at + offset), units.count); shown = visible; at = real
+            pending = lag
+            return
+        }
         if utf16Offsets {
             at = min(max(0, at + offset), units.count)
         } else {
@@ -71,7 +79,7 @@ final class FakeField: KeyboardProxy {
             units.insert(contentsOf: Array(s.utf16), at: at)
             at += s.utf16.count
         }
-        touched()
+        if altersInsertLate { shown = visible; units.remove(at: at - 1); at -= 1; pending = 2 } else { touched() }
     }
     func deleteBackward() {
         if !ignoresDelete, at > 0 {
@@ -200,6 +208,27 @@ final class KeyboardTests: XCTestCase {
     func testAppThatAltersInsertedTextIsReported() async throws {
         let f = FakeField("이건 않 돼요"); f.altersInsert = true
         do { _ = try await fix(f) { $0.replacingOccurrences(of: "않 ", with: "안정 ") }; XCTFail("알리지 않음") }
+        catch { XCTAssertEqual(error as? KeyboardError, .mismatch) }
+    }
+
+    func testAppThatIgnoresCursorMovesIsNotCorrupted() async throws {
+        for lag in 1...3 {
+            let text = "이건 않 돼요 정말로요"
+            let f = FakeField(text); f.lag = lag
+            let s = KeyboardSession(proxy: f)
+            let t = try await s.read()
+            let target = try XCTUnwrap(t.target(level: .polish))
+            f.ignoresMoves = true
+            do { try await s.apply(target, in: t, corrected: target.text.replacingOccurrences(of: "않", with: "안")); XCTFail("성공했다고 함") }
+            catch { XCTAssertEqual(error as? KeyboardError, .notFound) }
+            XCTAssertEqual(f.string, text)
+        }
+    }
+
+    /// 넣은 글이 처음에는 맞아 보이다가 앱이 나중에 바꾸는 경우
+    func testInsertionChangedLaterIsReported() async throws {
+        let f = FakeField("이건 않 돼요"); f.altersInsertLate = true
+        do { _ = try await fix(f) { $0.replacingOccurrences(of: "않", with: "안정") }; XCTFail("알리지 않음") }
         catch { XCTAssertEqual(error as? KeyboardError, .mismatch) }
     }
 

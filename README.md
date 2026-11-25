@@ -39,6 +39,7 @@ You write to people in three languages, and every message costs you a second loo
 - **Never overwrites newer typing** — If the text changed while a correction was on its way, nothing is written.
 - **Undoes in one step** — `⌃⌥Z` restores the last correction as long as it is still in place.
 - **Keeps a private history, if you want one** — Off by default, stored only on your Mac, deleted after 30 days.
+- **Works on iPhone too** — A correction-only keyboard: switch to it with 🌐, check the preview, tap *Apply*, and you're back on your usual keyboard.
 
 ---
 
@@ -58,7 +59,7 @@ Fix4me started as a personal tool. Please read this first.
 
 | Layer | Technology |
 |-------|------------|
-| Platform | macOS 15 or later (developed on macOS 27) |
+| Platform | macOS 15 or later (developed on macOS 27); iOS 18 or later for the keyboard |
 | Language | Swift 6, strict concurrency |
 | UI | SwiftUI + AppKit panels that never take focus |
 | Text access | macOS Accessibility API, clipboard paste as fallback |
@@ -92,6 +93,13 @@ Use another certificate with `FIX4ME_SIGN_ID="certificate name" ./scripts/build.
 
 If the permission still shows as missing, quit and reopen the app.
 
+### iPhone keyboard
+
+Open `Fix4me.xcodeproj` (run `xcodegen generate` first), choose your team for the `Fix4meiOS` and `Fix4meKeyboard` targets, and run the `Fix4meiOS` scheme on your iPhone. Bundle IDs and the app group must be unique, so change `com.aib.fix4me` in `project.yml`, `Fix4meiOS/Support/App.entitlements` and the shared code to your own.
+
+1. *Settings → General → Keyboard → Keyboards*: add Fix4me and turn on **Allow Full Access** (needed for the network and the shared key).
+2. Paste your OpenRouter key in the Fix4me app.
+
 ---
 
 ## ⌨️ Using It
@@ -107,6 +115,10 @@ If the permission still shows as missing, quit and reopen the app.
 | Open history | `⌘Y` |
 
 The bar is yellow for *Proofread*, blue for *Polish* and purple for *Rewrite*. When an app doesn't report where its text is, a small number appears in the corner of the field instead.
+
+### On iPhone
+
+Type with your usual keyboard, hold 🌐 and pick Fix4me. It reads the section at the cursor (or the selection) and shows the correction. *Apply* writes it and returns you to your keyboard; reopening Fix4me right after offers *Undo* (되돌리기).
 
 ### Settings
 
@@ -132,6 +144,8 @@ The bar is yellow for *Proofread*, blue for *Polish* and purple for *Rewrite*. W
 - Text that looks like an API key or token, and single unbroken strings
 - Sections you haven't changed since focusing the field
 - Excluded apps: terminals, password managers and code editors by default
+
+**iPhone.** The keyboard sends text when you open it, not while you type elsewhere. iOS never offers third-party keyboards in password fields.
 
 These are heuristics, not guarantees. Pressing the shortcut sends the text regardless of the filters, except in password fields. Turn background preparation off if you work with confidential text.
 
@@ -183,8 +197,10 @@ Language model output varies, so `--evaluate` reports counts rather than pass or
 ```
 ├── Fix4me/
 │   ├── App/                # App lifecycle, correction flow, background preparation, dev commands
-│   ├── Core/               # Accessibility, sections, diff, model client, cache, history
+│   ├── Core/               # Accessibility, shortcuts, background preparation, history
 │   └── UI/                 # Settings, bar and preview, notices, history window
+├── Shared/                 # Sections, model client, diff and keyboard logic used by both apps
+├── Fix4meiOS/              # iPhone settings app and keyboard extension
 ├── Fix4meTests/            # Unit tests
 ├── eval/cases.jsonl        # Fixed cases for scoring corrections
 ├── docs/                   # Architecture and decision log (Korean)
@@ -203,12 +219,13 @@ Language model output varies, so `--evaluate` reports counts rather than pass or
 - *Polish* has turned `12/05` into `December 5`, guessing the date order.
 - *Rewrite* can add small words or shift nuance.
 - A field's formatting inside a changed line may be lost.
+- The iPhone keyboard has been checked in the simulator only. It moves the cursor briefly to read the text, which takes about half a second.
 
 ---
 
 ## 🗺 Roadmap
 
-- [ ] iPhone version
+- [ ] iPhone keyboard checked on a real device
 - [ ] Faster corrections, measured against the evaluation set
 - [ ] Remember the preferred strength for each app
 - [ ] Protect dates and numbers in Polish and Rewrite
