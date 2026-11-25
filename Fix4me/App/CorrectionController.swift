@@ -155,7 +155,11 @@ final class CorrectionController {
 
         precomputer.suspended = true
         defer { precomputer.suspended = false }
+        let writing = ContinuousClock.now
         let applied = await write(edits, to: field.element, value: field.value)
+        let bundle = NSRunningApplication(processIdentifier: field.pid)?.bundleIdentifier ?? "?"
+        log.notice("write app=\(bundle, privacy: .public) edits=\(applied.edits.count)/\(edits.count) method=\(applied.method.rawValue, privacy: .public) mismatch=\(applied.mismatch) in \((ContinuousClock.now - writing).seconds, format: .fixed(precision: 2))s")
+        watchAfterWrite(field.element, app: bundle)
         guard !applied.mismatch else {
             // 예상과 다른 글이 들어갔다: 되돌리기 위치를 믿을 수 없으므로 앱의 실행 취소를 안내하고, 어긋난 글을 다시 보내지 않는다
             lastEdit = nil
@@ -194,6 +198,22 @@ final class CorrectionController {
         }
         let hunks = zip(originals, corrected).flatMap { TextDiff.hunks(old: $0, new: $1) }
         hud.show(.done(count: hunks.count, hunks: hunks, seconds: seconds), near: anchor)
+    }
+
+    /// 쓴 뒤 4초 동안 글이 다시 바뀌는지 본다 (진단용, 글 내용은 남기지 않고 길이와 시각만)
+    private func watchAfterWrite(_ element: AXUIElement, app: String) {
+        let first = AXText.currentValue(element)
+        let started = ContinuousClock.now
+        Task {
+            var last = first
+            for _ in 0..<40 {
+                try? await Task.sleep(for: .milliseconds(100))
+                let now = AXText.currentValue(element)
+                guard now != last else { continue }
+                log.notice("after-write app=\(app, privacy: .public) changed at \((ContinuousClock.now - started).seconds, format: .fixed(precision: 2))s len \(last?.utf16.count ?? -1)->\(now?.utf16.count ?? -1) backToFirst=\(now == first)")
+                last = now
+            }
+        }
     }
 
     /// 범위마다 교정 (캐시에 있으면 즉시, 진행 중이면 이어받음). 하나라도 실패하면 아무것도 쓰지 않는다.

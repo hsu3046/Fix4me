@@ -1,6 +1,7 @@
 import AppKit
 import ApplicationServices
 import Carbon.HIToolbox
+import OSLog
 
 /// 포커스된 입력창의 스냅샷. range 는 UTF-16 단위.
 struct FocusedText {
@@ -224,6 +225,9 @@ enum AXText {
 
     // MARK: - 쓰기
 
+    /// 쓰기 단계의 시각 (진단용, 글 내용은 남기지 않는다)
+    private static let writeLog = Logger(subsystem: "com.aib.fix4me", category: "write")
+
     enum WriteMethod: String { case accessibility, paste }
 
     enum WriteResult: Equatable {
@@ -242,7 +246,12 @@ enum AXText {
             return EditorText.same(now, value) ? .untouched : .mismatch
         }
 
-        guard let mapping = await selectVerified(edit.range, original: original, value: value, in: element) else { return .untouched }
+        let selecting = ContinuousClock.now
+        guard let mapping = await selectVerified(edit.range, original: original, value: value, in: element) else {
+            writeLog.notice("select failed after \((ContinuousClock.now - selecting).components.attoseconds / 1_000_000_000_000_000)ms web=\(isWeb(element))")
+            return .untouched
+        }
+        writeLog.notice("selected in \((ContinuousClock.now - selecting).components.attoseconds / 1_000_000_000_000_000)ms web=\(isWeb(element))")
 
         // 웹 편집기는 접근성 쓰기를 성공이라 답하고 무시하거나, 자기 모델과 어긋나게 화면만 바꾼다 → 바로 붙여넣기
         if !isWeb(element),
@@ -256,7 +265,12 @@ enum AXText {
         }
 
         // ⌘V 는 앞에 있는 앱으로 간다 → 그사이 다른 앱·입력창으로 옮겼으면 쓰지 않는다
-        guard isFocused(element) else { return .untouched }
+        guard isFocused(element) else {
+            writeLog.notice("paste skipped: not focused")
+            return .untouched
+        }
+        let held = NSEvent.modifierFlags.intersection([.control, .option, .command, .shift]).rawValue
+        writeLog.notice("paste with held modifiers=\(held)")
         await paste(edit.text)
         // 편집기가 글을 여러 번에 나눠 고치는 동안의 중간 상태를 결과로 보지 않도록 끝까지 기다린다
         var last = state()
