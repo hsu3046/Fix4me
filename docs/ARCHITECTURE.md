@@ -57,6 +57,7 @@ dist/Fix4me.app/Contents/MacOS/Fix4me --evaluate-history                      # 
 ```
 
 - `Fix4me.xcodeproj` 는 `project.yml` 에서 생성 (커밋 안 함).
+- 앱 아이콘은 `Fix4me/AppIcon.icon` (Icon Composer). 빌드가 macOS 26+ 용 Assets.car 와 예전 macOS 용 icns 를 함께 만든다.
 - ad-hoc 서명은 빌드마다 서명 신원이 바뀌어 손쉬운 사용 권한이 풀린다 → 고정 인증서로 서명. 다른 인증서는 `FIX4ME_SIGN_ID`.
 - 샌드박스 없음 (Accessibility·이벤트 게시가 필요해 Mac App Store 배포 불가 — 본인 전용이라 무관).
 
