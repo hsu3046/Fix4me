@@ -15,7 +15,7 @@ targets:
   Fix4me:
     type: application
     platform: macOS
-    sources: [Fix4me]
+    sources: [Fix4me, Shared]
     info:
       path: Fix4me/Info.plist
       properties:

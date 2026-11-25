@@ -15,11 +15,11 @@ enum CorrectionLevel: String, CaseIterable, Identifiable, Sendable {
     /// 저장된 값이 없거나 알 수 없는 값이면 가장 보수적인 교정
     static var current: CorrectionLevel { load() }
 
-    static func load(from defaults: UserDefaults = .standard) -> CorrectionLevel {
+    static func load(from defaults: UserDefaults = SharedStore.defaults) -> CorrectionLevel {
         defaults.string(forKey: defaultsKey).flatMap(CorrectionLevel.init(rawValue:)) ?? .proofread
     }
 
-    static func save(_ level: CorrectionLevel, to defaults: UserDefaults = .standard) {
+    static func save(_ level: CorrectionLevel, to defaults: UserDefaults = SharedStore.defaults) {
         defaults.set(level.rawValue, forKey: defaultsKey)
     }
 
