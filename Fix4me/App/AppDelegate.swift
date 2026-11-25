@@ -4,16 +4,20 @@ import SwiftUI
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem?
+    private let history = HistoryStore()
     private let precomputer: Precomputer
     private let controller: CorrectionController
-    private let settingsModel = SettingsModel()
+    private let settingsModel: SettingsModel
     private var settingsWindow: NSWindow?
+    private var historyWindow: NSWindow?
 
     override init() {
         let service = CorrectionService()
         precomputer = Precomputer(service: service)
-        controller = CorrectionController(service: service, precomputer: precomputer)
+        controller = CorrectionController(service: service, precomputer: precomputer, history: history)
+        settingsModel = SettingsModel(history: history)
         super.init()
+        settingsModel.openHistory = { [weak self] in self?.showHistory() }
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -26,6 +30,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let ok2 = HotKeyCenter.shared.register(HotKeyCenter.revert) { [weak self] in self?.controller.revertLast() }
         settingsModel.hotKeysOK = ok1 && ok2
         precomputer.start()
+        history.prune()
 
         // 처음 실행이거나 준비가 덜 됐으면 설정 창부터
         if !AXText.isTrusted || Keychain.read(Keychain.openRouterAccount) == nil || !settingsModel.hotKeysOK {
@@ -45,6 +50,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         let appMenu = NSMenu()
         appMenu.addItem(withTitle: "설정…", action: #selector(openSettings), keyEquivalent: ",").target = self
+        appMenu.addItem(withTitle: "교정 기록…", action: #selector(openHistory), keyEquivalent: "y").target = self
         appMenu.addItem(.separator())
         appMenu.addItem(withTitle: "Fix4me 종료", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         main.addItem(withTitle: "Fix4me", action: nil, keyEquivalent: "").submenu = appMenu
@@ -75,6 +81,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(withTitle: "마지막 교정 되돌리기  \(HotKeyCenter.revert.label)", action: #selector(revertNow), keyEquivalent: "").target = self
         menu.addItem(.separator())
         menu.addItem(withTitle: "설정…", action: #selector(openSettings), keyEquivalent: ",").target = self
+        menu.addItem(withTitle: "교정 기록…", action: #selector(openHistory), keyEquivalent: "").target = self
         menu.addItem(withTitle: "Fix4me 종료", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         item.menu = menu
         statusItem = item
@@ -83,6 +90,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func correctNow() { controller.correctFocused() }
     @objc private func revertNow() { controller.revertLast() }
     @objc private func openSettings() { showSettings() }
+    @objc private func openHistory() { showHistory() }
+
+    private func showHistory() {
+        if historyWindow == nil {
+            let window = NSWindow(contentViewController: NSHostingController(rootView: HistoryView(model: HistoryModel(store: history))))
+            window.title = "Fix4me 교정 기록"
+            window.styleMask = [.titled, .closable, .resizable]
+            window.isReleasedWhenClosed = false
+            window.setContentSize(NSSize(width: 640, height: 560))
+            window.contentMinSize = NSSize(width: 520, height: 360)
+            historyWindow = window
+        }
+        historyWindow?.center()
+        NSApp.activate()
+        historyWindow?.makeKeyAndOrderFront(nil)
+    }
 
     private func showSettings() {
         if settingsWindow == nil {

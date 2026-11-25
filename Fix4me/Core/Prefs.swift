@@ -8,6 +8,7 @@ enum Prefs {
         static let badge = "badgeEnabled"
         static let excluded = "excludedBundleIDs"
         static let dictionary = "personalDictionary"
+        static let history = "historyEnabled"
     }
 
     static var scope: ScopeMode {
@@ -18,6 +19,12 @@ enum Prefs {
     static var precompute: Bool {
         get { UserDefaults.standard.object(forKey: Key.precompute) as? Bool ?? true }
         set { UserDefaults.standard.set(newValue, forKey: Key.precompute) }
+    }
+
+    /// 교정 기록 저장 (기본 꺼짐)
+    static var history: Bool {
+        get { UserDefaults.standard.bool(forKey: Key.history) }
+        set { UserDefaults.standard.set(newValue, forKey: Key.history) }
     }
 
     /// 개인 사전 (입력한 그대로의 글)

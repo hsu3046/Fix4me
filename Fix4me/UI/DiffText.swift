@@ -19,6 +19,12 @@ enum DiffText {
         return out
     }
 
+    /// 거의 다 바뀌면 원문 전체 → 고친 글 전체, 아니면 단어별 비교
+    static func comparison(old: String, new: String) -> AttributedString {
+        let segments = TextDiff.segments(old: old, new: new)
+        return TextDiff.isMostlyChanged(segments) ? removed(old) + AttributedString("\n") + added(new) : inline(segments)
+    }
+
     /// 알림용: 앞쪽 몇 곳만 "~~않~~ 안"
     static func summary(_ hunks: [TextDiff.Hunk], limit: Int = 3) -> AttributedString {
         var out = AttributedString()

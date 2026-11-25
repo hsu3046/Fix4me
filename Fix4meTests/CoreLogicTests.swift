@@ -149,33 +149,33 @@ final class IndicatorLayoutTests: XCTestCase {
 
 final class DictionaryTests: XCTestCase {
     func testParseTrimsDedupesAndSkipsBlank() {
-        XCTAssertEqual(PersonalDictionary.parse(" 틈랩 \n\nknowai\n틈랩\nAIB"), ["틈랩", "knowai", "AIB"])
+        XCTAssertEqual(PersonalDictionary.parse(" 누리숲 \n\nacmeai\n누리숲\nACME"), ["누리숲", "acmeai", "ACME"])
     }
 
     func testChangedDictionaryWordRestoresOnlyThatLine() {
-        let original = "틈랩에서 않 됨\n금새 끝"
-        XCTAssertEqual(PersonalDictionary.enforce(original: original, corrected: "틈 랩에서 안 됨\n금세 끝", words: ["틈랩"]),
-                       "틈랩에서 않 됨\n금세 끝")
+        let original = "누리숲에서 않 됨\n금새 끝"
+        XCTAssertEqual(PersonalDictionary.enforce(original: original, corrected: "누리 숲에서 안 됨\n금세 끝", words: ["누리숲"]),
+                       "누리숲에서 않 됨\n금세 끝")
     }
 
     func testUnpairableLinesRestoreEverything() {
-        XCTAssertEqual(PersonalDictionary.enforce(original: "knowai is good", corrected: "Know AI\nis good", words: ["knowai"]), "knowai is good")
+        XCTAssertEqual(PersonalDictionary.enforce(original: "acmeai is good", corrected: "Acme AI\nis good", words: ["acmeai"]), "acmeai is good")
     }
 
     func testDroppingOneOfTwoOccurrencesIsAViolation() {
-        XCTAssertEqual(PersonalDictionary.enforce(original: "AIB와 AIB", corrected: "AIB와 그곳", words: ["AIB"]), "AIB와 AIB")
-        XCTAssertEqual(PersonalDictionary.enforce(original: "AIB 않 됨", corrected: "AIB 안 됨", words: ["AIB"]), "AIB 안 됨")
+        XCTAssertEqual(PersonalDictionary.enforce(original: "ACME와 ACME", corrected: "ACME와 그곳", words: ["ACME"]), "ACME와 ACME")
+        XCTAssertEqual(PersonalDictionary.enforce(original: "ACME 않 됨", corrected: "ACME 안 됨", words: ["ACME"]), "ACME 안 됨")
     }
 
     func testPromptListsWordsOnlyWhenPresent() {
         XCTAssertFalse(OpenRouterClient.systemPrompt(for: .polish).contains("Never change, translate"))
-        XCTAssertTrue(OpenRouterClient.systemPrompt(for: .polish, dictionary: ["틈랩"]).contains("\"틈랩\""))
+        XCTAssertTrue(OpenRouterClient.systemPrompt(for: .polish, dictionary: ["누리숲"]).contains("\"누리숲\""))
     }
 
     func testCacheKeySeparatesDictionaries() {
         var c = CorrectionCache(capacity: 5)
         c.insert("x", for: .init(level: .polish, text: "a", dictionary: []))
-        XCTAssertNil(c.value(for: .init(level: .polish, text: "a", dictionary: ["틈랩"])))
+        XCTAssertNil(c.value(for: .init(level: .polish, text: "a", dictionary: ["누리숲"])))
     }
 }
 
@@ -208,6 +208,110 @@ final class PipelineTests: XCTestCase {
     }
 }
 
+@MainActor
+final class HistoryTests: XCTestCase {
+    private var url: URL!
+    private var store: HistoryStore!
+
+    override func setUp() async throws {
+        url = FileManager.default.temporaryDirectory.appending(path: "fix4me-\(UUID())/history.jsonl")
+        store = HistoryStore(url: url)
+    }
+    override func tearDown() async throws { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+
+    private func add(_ a: String = "않 됨", _ b: String = "안 됨", app: String = "app", enabled: Bool = true, excluded: [String] = []) -> UUID? {
+        store.record(original: a, corrected: b, level: .polish, app: app, outcome: .applied, enabled: enabled, excluded: excluded)
+    }
+
+    func testRecordAndRevertRoundTrip() throws {
+        let tricky = "줄\n둘\u{2028}셋 \"따옴표\" 😀"
+        let id = try XCTUnwrap(add(tricky, tricky + "!"))
+        _ = add("b", "c")
+        store.update([id], outcome: .reverted)
+        let e = store.entries()
+        XCTAssertEqual(e.map(\.outcome), [.reverted, .applied])
+        XCTAssertEqual(e[0].original, tricky)
+    }
+
+    func testNothingIsWrittenWhenOffExcludedSecretOrUnchanged() {
+        XCTAssertNil(add(enabled: false))
+        XCTAssertNil(add(app: "com.bank", excluded: ["com.bank"]))
+        XCTAssertNil(add("키는 sk-or-FAKE-FOR-TESTS-ONLY-0000 않", "키는 sk-or-FAKE-FOR-TESTS-ONLY-0000 안"))
+        XCTAssertNil(add("키 sk-or-FAKE-FOR-TESTS-ONLY-0000", "키"))     // 원문에만
+        XCTAssertNil(add("키", "키 sk-or-FAKE-FOR-TESTS-ONLY-0000"))     // 고친 글에만
+        XCTAssertNil(add("같음", "같음"))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: url.path))
+    }
+
+    func testFileIsPrivateEvenAfterRewrite() throws {
+        let id = try XCTUnwrap(add())
+        _ = add("b", "c")
+        func mode(_ u: URL) throws -> Int { try XCTUnwrap(FileManager.default.attributesOfItem(atPath: u.path)[.posixPermissions] as? Int) }
+        XCTAssertEqual(try mode(url), 0o600)
+        XCTAssertEqual(try mode(url.deletingLastPathComponent()), 0o700)
+        store.delete(id)
+        XCTAssertEqual(store.entries().map(\.original), ["b"])
+        XCTAssertEqual(try mode(url), 0o600)
+    }
+
+    func testBrokenLinesAreSkipped() throws {
+        _ = add()
+        let h = try FileHandle(forWritingTo: url); try h.seekToEnd()
+        try h.write(contentsOf: Data("{\"entry\":{\"id\n".utf8)); try h.close()
+        _ = add("b", "c")
+        XCTAssertEqual(store.entries().count, 2)
+    }
+
+    func testOldEntriesAreRemovedFromDisk() throws {
+        let old = HistoryEntry(id: UUID(), date: .now.addingTimeInterval(-31 * 86_400), app: "a", level: "polish", original: "옛글", corrected: "새글", outcome: .applied)
+        _ = add()
+        let h = try FileHandle(forWritingTo: url); try h.seekToEnd(); try h.write(contentsOf: HistoryLog.line(old)); try h.close()
+        XCTAssertEqual(store.entries().count, 1)
+        store.prune()
+        XCTAssertFalse(try String(contentsOf: url, encoding: .utf8).contains("옛글"))
+    }
+
+    func testDeleteAllRemovesFile() {
+        _ = add()
+        store.deleteAll()
+        XCTAssertFalse(FileManager.default.fileExists(atPath: url.path))
+        XCTAssertEqual(store.entries(), [])
+        store.deleteAll()
+        XCTAssertNil(store.lastError)
+    }
+}
+
+final class EvaluationTests: XCTestCase {
+    private func c(_ json: String) throws -> EvalCase { try JSONDecoder().decode(EvalCase.self, from: Data(json.utf8)) }
+
+    func testScoring() throws {
+        let neg = try c(#"{"id":"n","text":"않 고쳤어요","require":["안 |않"],"reject":["싹 고쳤"]}"#)
+        XCTAssertNil(neg.failure("안 고쳤어요"))
+        XCTAssertNotNil(neg.failure("싹 고쳤어요"))
+        XCTAssertNotNil(neg.failure("고쳤어요"))
+        XCTAssertNotNil(neg.failure("안 돼서 싹 고쳤어요"))   // require 를 채워도 reject 면 실패
+        XCTAssertNotNil(try c(#"{"id":"u","text":"그대로","unchanged":true}"#).failure("그대로."))
+        XCTAssertNotNil(try c(#"{"id":"l","text":"a\nb","keepLines":true}"#).failure("a b"))
+    }
+
+    func testBadCasesAreReportedNotPassed() throws {
+        XCTAssertNotNil(try c(#"{"id":"r","text":"a","require":["("]}"#).problem)
+        XCTAssertNotNil(try c(#"{"id":"l","text":"a","levels":["turbo"],"unchanged":true}"#).problem)
+        XCTAssertNotNil(try c(#"{"id":"e","text":"a"}"#).problem)
+    }
+
+    func testShippedCasesAreValid() throws {
+        let file = URL(filePath: #filePath).deletingLastPathComponent().deletingLastPathComponent().appending(path: "eval/cases.jsonl")
+        let cases = try EvalCase.load(Data(contentsOf: file))
+        XCTAssertGreaterThan(cases.count, 15)
+        XCTAssertEqual(Set(cases.map(\.id)).count, cases.count)
+        for one in cases {
+            XCTAssertNil(one.problem, one.id)
+            if one.unchanged == true { XCTAssertNil(one.failure(one.text), one.id) }
+        }
+    }
+}
+
 final class RetryTests: XCTestCase {
     func testEmptyResponseIsRetriedOnceOnly() async {
         var calls = 0
@@ -235,8 +339,8 @@ final class PrecomputeTests: XCTestCase {
         XCTAssertFalse(PrecomputeFilter.isWorthChecking("짧음"))
         XCTAssertFalse(PrecomputeFilter.isWorthChecking("https://example.com/a?b=c"))
         XCTAssertFalse(PrecomputeFilter.isWorthChecking("hunter2hunter2"))
-        XCTAssertFalse(PrecomputeFilter.isWorthChecking("내 키는 sk-or-v1-0123456789abcdef0123 입니다"))
-        XCTAssertFalse(PrecomputeFilter.isWorthChecking("KEY=ghp_0123456789abcdefghij 저장"))
+        XCTAssertFalse(PrecomputeFilter.isWorthChecking("내 키는 sk-or-FAKE-FOR-TESTS-ONLY-0000 입니다"))
+        XCTAssertFalse(PrecomputeFilter.isWorthChecking("KEY=ghp_FAKEFORTESTSONLY0000 저장"))
     }
 
     func testCacheEvictsLeastRecentlyUsedAndSeparatesLevels() {

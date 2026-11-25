@@ -32,6 +32,8 @@
 | `Fix4me/Core/CorrectionPipeline.swift` | 강도별 호출 순서. 다시 쓰기는 교정 → 다시 쓰기 (교정 결과는 캐시 공유, 분당 상한에는 2건으로 셈) |
 | `Fix4me/UI/Indicator.swift`, `DiffText.swift`, `Core/IndicatorLayout.swift` | 고칠 문단 왼쪽 막대(위치를 모르면 모서리 배지), 롤오버 미리보기(원문 취소선 + 고친 글, 적용/무시) |
 | `Fix4me/Core/PersonalDictionary.swift` | 개인 사전: 프롬프트 지시 + 어긴 줄은 원문으로 |
+| `Fix4me/Core/History.swift`, `UI/HistoryView.swift` | 교정 기록(기본 꺼짐, 이 Mac 에만, 30일)과 보기 창 |
+| `Fix4me/Core/Evaluation.swift`, `App/DevCommands.swift`, `eval/cases.jsonl` | 채점 기준과 개발용 명령줄 |
 | `Fix4me/Core/PrecomputeFilter.swift`, `Prefs.swift` | 보내지 않을 글 판정, 설정값·제외 앱 |
 | `Fix4me/Core/Keychain.swift` | API 키 저장 (로그인 키체인) |
 | `Fix4me/Core/Sectioner.swift` | 규칙만으로 섹션 나누기: 줄 종류 → 경계 3단계 → 크기 맞추기, 참고 문맥(가까운 제목 + 앞 덩어리) |
@@ -47,6 +49,8 @@
 xcodebuild -project Fix4me.xcodeproj -scheme Fix4me -derivedDataPath build/DerivedData test
 dist/Fix4me.app/Contents/MacOS/Fix4me --compare "비교할 문장"   # 세 강도 결과 비교 (개발용)
 dist/Fix4me.app/Contents/MacOS/Fix4me --sections 파일               # LLM 없이 섹션 경계만 출력 (개발용)
+dist/Fix4me.app/Contents/MacOS/Fix4me --evaluate eval/cases.jsonl --repeat 2   # 정해 둔 글로 채점
+dist/Fix4me.app/Contents/MacOS/Fix4me --evaluate-history                      # 거절한 교정이 또 나오는지 (기록의 글을 다시 전송)
 ```
 
 - `Fix4me.xcodeproj` 는 `project.yml` 에서 생성 (커밋 안 함).

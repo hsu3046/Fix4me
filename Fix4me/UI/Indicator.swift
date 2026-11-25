@@ -9,6 +9,7 @@ final class IndicatorController {
         let range: NSRange
         let original: String
         let corrected: String
+        let level: CorrectionLevel
         let rect: NSRect?      // 문단의 화면 위치 (앱이 알려 준 경우)
     }
 

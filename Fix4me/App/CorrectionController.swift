@@ -7,6 +7,7 @@ final class CorrectionController {
     private let hud = HUDController()
     private let service: CorrectionService
     private let precomputer: Precomputer
+    private let history: HistoryStore
     private let log = Logger(subsystem: "com.aib.fix4me", category: "correction")
     private var busy = false
     private var lastEdit: LastEdit?
@@ -17,12 +18,17 @@ final class CorrectionController {
         let undo: [TextEdit]
         let inserted: [String]   // 각 구간에 지금 있어야 하는 글
         let originals: [String]  // 교정 대상이던 원문 (되돌린 뒤 다시 보내지 않도록)
+        let history: [UUID]      // 되돌리면 결과를 바꿀 기록
     }
 
-    init(service: CorrectionService, precomputer: Precomputer) {
+    init(service: CorrectionService, precomputer: Precomputer, history: HistoryStore) {
         self.service = service
         self.precomputer = precomputer
+        self.history = history
         precomputer.onApply = { [weak self] item, element in self?.applyOne(item, to: element) }
+        precomputer.onIgnore = { [weak self] item, app in
+            _ = self?.history.record(original: item.original, corrected: item.corrected, level: item.level, app: app, outcome: .ignored)
+        }
     }
 
     func correctFocused() {
@@ -99,7 +105,7 @@ final class CorrectionController {
         let elapsed = ContinuousClock.now - started
         log.info("corrected level=\(level.rawValue) targets=\(targets.count) in \(elapsed.seconds, format: .fixed(precision: 2))s")
 
-        await finish(field: field, targets: targets, originals: originals, corrected: corrected,
+        await finish(field: field, targets: targets, originals: originals, corrected: corrected, level: level,
                      seconds: elapsed.seconds, anchor: anchor)
     }
 
@@ -118,14 +124,15 @@ final class CorrectionController {
                 return
             }
             AXText.prepareForWriting(field.element)
-            await finish(field: field, targets: [item.range], originals: [item.original], corrected: [item.corrected],
+            await finish(field: field, targets: [item.range], originals: [item.original], corrected: [item.corrected], level: item.level,
                          seconds: 0, anchor: item.rect ?? AXText.caretRect(field))
         }
     }
 
     /// 교정 결과를 입력창에 쓰고, 되돌리기를 기록하고, 알린다.
     private func finish(
-        field: FocusedText, targets: [NSRange], originals: [String], corrected: [String], seconds: Double, anchor: NSRect?
+        field: FocusedText, targets: [NSRange], originals: [String], corrected: [String], level: CorrectionLevel,
+        seconds: Double, anchor: NSRect?
     ) async {
         // 범위 안에서 실제로 바뀐 구간만, 글 전체 기준 위치로
         var edits: [TextEdit] = []
@@ -156,9 +163,14 @@ final class CorrectionController {
         if applied.edits.count == edits.count, let now = AXText.currentValue(field.element) {
             precomputer.didWrite(now, before: field.value, processed: corrected, to: field.element)
         }
+        // 다 쓴 경우만 기록한다 (일부만 쓴 결과는 교정 품질의 신호가 아니다)
+        let app = NSRunningApplication(processIdentifier: field.pid)?.bundleIdentifier ?? ""
+        let recorded = applied.edits.count != edits.count ? [] : zip(originals, corrected).compactMap {
+            history.record(original: $0, corrected: $1, level: level, app: app, outcome: .applied)
+        }
         lastEdit = LastEdit(
             element: field.element, undo: TextDiff.inverse(of: applied.edits, in: latest), inserted: applied.edits.map(\.text),
-            originals: originals
+            originals: originals, history: recorded
         )
         guard applied.edits.count == edits.count else {
             hud.show(.error("\(edits.count)곳 중 \(applied.edits.count)곳만 고쳤어요 — \(HotKeyCenter.revert.label) 로 되돌릴 수 있어요"), near: anchor)
@@ -230,6 +242,7 @@ final class CorrectionController {
             precomputer.didWrite(now, before: value, processed: edit.originals, to: edit.element)
         }
         let ok = applied.edits.count == edit.undo.count
+        if ok { history.update(edit.history, outcome: .reverted) }
         hud.show(ok ? .reverted : .error("다 되돌리지 못했어요 — ⌘Z 를 써 주세요"),
                  near: edit.undo.first.flatMap { AXText.screenRect(of: $0.range, in: edit.element) })
     }

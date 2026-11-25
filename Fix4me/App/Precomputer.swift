@@ -41,6 +41,8 @@ final class Precomputer {
 
     /// 미리보기에서 "적용"을 눌렀을 때 (한 문단만)
     var onApply: ((IndicatorController.Item, AXUIElement) -> Void)?
+    /// 미리보기에서 "무시"를 눌렀을 때 (기록용, 앱 번들 ID)
+    var onIgnore: ((IndicatorController.Item, String) -> Void)?
 
     init(service: CorrectionService) {
         self.service = service
@@ -191,7 +193,7 @@ final class Precomputer {
             let text = ns.substring(with: r)
             guard !isIgnored(text, in: field.element),
                   let fixed = service.cached(text, level: level), fixed != text else { return nil }
-            return .init(range: r, original: text, corrected: fixed, rect: AXText.screenRect(of: r, in: field.element))
+            return .init(range: r, original: text, corrected: fixed, level: level, rect: AXText.screenRect(of: r, in: field.element))
         }
         guard !items.isEmpty else { return indicator.hide() }
         indicator.update(.init(
@@ -207,5 +209,6 @@ final class Precomputer {
 
     private func ignore(_ item: IndicatorController.Item) {
         session?.ignored.insert(item.original)
+        onIgnore?(item, NSWorkspace.shared.frontmostApplication?.bundleIdentifier ?? "")
     }
 }

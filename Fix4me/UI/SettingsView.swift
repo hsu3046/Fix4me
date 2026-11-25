@@ -23,6 +23,24 @@ final class SettingsModel {
     var dictionaryText = Prefs.dictionaryText { didSet { Prefs.dictionaryText = dictionaryText } }
     var excluded = Prefs.excluded { didSet { Prefs.excluded = excluded } }
 
+    var historyEnabled = Prefs.history { didSet { Prefs.history = historyEnabled } }
+    private(set) var historyCount = 0
+    @ObservationIgnored let history: HistoryStore
+    @ObservationIgnored var openHistory: () -> Void = {}
+
+    init(history: HistoryStore) {
+        self.history = history
+        refreshHistory()
+    }
+
+    func refreshHistory() { historyCount = history.entries().count }
+
+    func deleteHistory() {
+        history.deleteAll()
+        refreshHistory()
+        message = history.lastError.map { "기록을 지우지 못했어요: \($0)" } ?? "교정 기록을 모두 지웠어요"
+    }
+
     /// 앱을 골라 미리 교정 제외 목록에 넣는다
     func addExcludedApp() {
         let panel = NSOpenPanel()
@@ -103,6 +121,7 @@ final class SettingsModel {
 
 struct SettingsView: View {
     @Bindable var model: SettingsModel
+    @State private var confirmingDelete = false
 
     var body: some View {
         Form {
@@ -170,6 +189,22 @@ struct SettingsView: View {
                     .font(.caption).foregroundStyle(.secondary)
             }
 
+            Section("교정 기록") {
+                Toggle("교정 전후의 글을 이 Mac 에 저장", isOn: $model.historyEnabled)
+                HStack {
+                    Text("\(model.historyCount)건").foregroundStyle(.secondary)
+                    Spacer()
+                    Button("기록 보기…") { model.openHistory() }
+                    Button("모두 지우기…", role: .destructive) { confirmingDelete = true }.disabled(model.historyCount == 0)
+                }
+                Text("켜면 적용·무시·되돌린 교정의 원문이 저장돼요. 이 Mac 밖으로 보내지 않고 \(HistoryLog.retentionDays)일 뒤 지워요. 제외한 앱과 키처럼 보이는 글은 저장하지 않아요. 꺼도 이미 저장한 기록은 남아요.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            .confirmationDialog("교정 기록을 모두 지울까요? 되돌릴 수 없어요.", isPresented: $confirmingDelete) {
+                Button("모두 지우기", role: .destructive) { model.deleteHistory() }
+                Button("취소", role: .cancel) {}
+            }
+
             Section("OpenRouter API 키") {
                 HStack {
                     SecureField("sk-or-…", text: $model.keyInput)
@@ -208,7 +243,7 @@ struct SettingsView: View {
         // grouped Form 은 내부가 스크롤 영역이라 스스로 높이를 정하지 않는다 → 높이를 명시 (없으면 창이 0 높이로 접힘)
         .frame(minWidth: 460, idealWidth: 520, maxWidth: .infinity,
                minHeight: 360, idealHeight: 780, maxHeight: .infinity)
-        .onAppear { model.startPolling() }
+        .onAppear { model.startPolling(); model.refreshHistory() }
         .onDisappear { model.stopPolling() }
     }
 }
