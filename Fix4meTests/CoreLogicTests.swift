@@ -450,6 +450,50 @@ final class BestResultTests: XCTestCase {
     }
 }
 
+final class DoubleTapTests: XCTestCase {
+    private func fires(_ events: [(DoubleTapDetector.Input, TimeInterval)]) -> Int {
+        var d = DoubleTapDetector()
+        return events.filter { d.handle($0.0, at: $0.1) }.count
+    }
+    private let L: UInt16 = 58, R: UInt16 = 61
+
+    func testQuickDoubleTapFiresOnceOnSecondRelease() {
+        XCTAssertEqual(fires([(.down(key: L), 0), (.up(key: L), 0.1), (.down(key: L), 0.2)]), 0)   // 떼기 전에는 아직
+        XCTAssertEqual(fires([(.down(key: L), 0), (.up(key: L), 0.1), (.down(key: L), 0.2), (.up(key: L), 0.3)]), 1)
+        XCTAssertEqual(fires([(.down(key: R), 0), (.up(key: R), 0.1), (.down(key: R), 0.2), (.up(key: R), 0.3)]), 1)
+    }
+
+    func testTripleTapFiresOnce() {
+        XCTAssertEqual(fires([(.down(key: L), 0), (.up(key: L), 0.1), (.down(key: L), 0.2), (.up(key: L), 0.3),
+                              (.down(key: L), 0.4), (.up(key: L), 0.5)]), 1)
+    }
+
+    func testOtherInputsCancel() {
+        // ⌥ 로 글자를 입력하거나(⌥E 등) 클릭하는 중에는 동작하지 않는다
+        XCTAssertEqual(fires([(.down(key: L), 0), (.other, 0.05), (.up(key: L), 0.1), (.down(key: L), 0.2), (.up(key: L), 0.3)]), 0)
+        XCTAssertEqual(fires([(.down(key: L), 0), (.up(key: L), 0.1), (.other, 0.15), (.down(key: L), 0.2), (.up(key: L), 0.3)]), 0)
+        XCTAssertEqual(fires([(.down(key: L), 0), (.up(key: L), 0.1), (.down(key: L), 0.2), (.other, 0.25), (.up(key: L), 0.3)]), 0)
+    }
+
+    func testSlowOrMixedTapsDoNotFire() {
+        XCTAssertEqual(fires([(.down(key: L), 0), (.up(key: L), 0.5), (.down(key: L), 0.6), (.up(key: L), 0.7)]), 0)   // 오래 누름
+        XCTAssertEqual(fires([(.down(key: L), 0), (.up(key: L), 0.1), (.down(key: L), 0.6), (.up(key: L), 0.7)]), 0)   // 간격이 김
+        XCTAssertEqual(fires([(.down(key: L), 0), (.up(key: L), 0.1), (.down(key: L), 0.2), (.up(key: L), 0.9)]), 0)   // 두 번째를 오래
+        XCTAssertEqual(fires([(.down(key: L), 0), (.up(key: L), 0.1), (.down(key: R), 0.2), (.up(key: R), 0.3)]), 0)   // 양쪽을 번갈아
+        // 늦은 두 번째 누름은 새 첫 번째로 센다
+        XCTAssertEqual(fires([(.down(key: L), 0), (.up(key: L), 0.1), (.down(key: L), 0.6), (.up(key: L), 0.7),
+                              (.down(key: L), 0.8), (.up(key: L), 0.9)]), 1)
+    }
+
+    @MainActor func testOnlyPlainOptionCounts() {
+        XCTAssertEqual(DoubleTapMonitor.input(key: L, flags: .option), .down(key: L))
+        XCTAssertEqual(DoubleTapMonitor.input(key: L, flags: []), .up(key: L))
+        XCTAssertEqual(DoubleTapMonitor.input(key: L, flags: [.option, .control]), .other)
+        XCTAssertEqual(DoubleTapMonitor.input(key: L, flags: [.option, .shift]), .other)
+        XCTAssertEqual(DoubleTapMonitor.input(key: L, flags: [.option, .capsLock]), .down(key: L))   // Caps Lock 은 무시
+    }
+}
+
 final class RetryTests: XCTestCase {
     func testEmptyResponseIsRetriedOnceOnly() async {
         var calls = 0

@@ -242,8 +242,8 @@ struct PreviewView: View {
     private var footer: String {
         let level = items.first?.level.title ?? ""
         return items.allSatisfy(\.isFinal)
-            ? "\(level) · 전체 적용 \(HotKeyCenter.correct.label)"
-            : "\(level) 결과 먼저 · \(CorrectionLevel.current.title) 준비 중 (\(HotKeyCenter.correct.label) 는 기다렸다 적용)"
+            ? "\(level) · 전체 적용 \(Prefs.correctLabel)"
+            : "\(level) 결과 먼저 · \(CorrectionLevel.current.title) 준비 중 (\(Prefs.correctLabel) 는 기다렸다 적용)"
     }
 
     private func row(_ item: IndicatorController.Item) -> some View {

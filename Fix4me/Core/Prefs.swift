@@ -9,6 +9,7 @@ enum Prefs {
         static let excluded = "excludedBundleIDs"
         static let dictionary = "personalDictionary"
         static let history = "historyEnabled"
+        static let doubleTap = "doubleTapEnabled"
     }
 
     static var scope: ScopeMode {
@@ -20,6 +21,15 @@ enum Prefs {
         get { UserDefaults.standard.object(forKey: Key.precompute) as? Bool ?? true }
         set { UserDefaults.standard.set(newValue, forKey: Key.precompute) }
     }
+
+    /// ⌥ 두 번 누르기로 교정 (기본 켜짐)
+    static var doubleTap: Bool {
+        get { UserDefaults.standard.object(forKey: Key.doubleTap) as? Bool ?? true }
+        set { UserDefaults.standard.set(newValue, forKey: Key.doubleTap) }
+    }
+
+    /// 화면에 보여 줄 교정 단축키
+    static var correctLabel: String { doubleTap ? "⌥⌥" : "⌃⌥F" }
 
     /// 교정 기록 저장 (기본 꺼짐)
     static var history: Bool {

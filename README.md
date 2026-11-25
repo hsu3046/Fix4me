@@ -30,7 +30,7 @@ You write to people in three languages, and every message costs you a second loo
 
 ## ✨ What It Does
 
-- **Fixes text where you type** — Press `⌃⌥F` with your cursor in a text field; no copying, no extra window.
+- **Fixes text where you type** — Tap `⌥` (Option) twice with your cursor in a text field; no copying, no extra window.
 - **Prepares fixes while you pause** — Moments after you stop typing, a correction is prepared in the background so the shortcut can apply it without waiting.
 - **Shows what will change** — A thin bar marks each section that can be improved. Hover to see the original struck through beside the new text.
 - **Lets you choose how far to go** — *Proofread* fixes mistakes, *Polish* smooths awkward wording, *Rewrite* restructures for clarity.
@@ -98,8 +98,8 @@ If the permission still shows as missing, quit and reopen the app.
 
 | Action | How |
 |--------|-----|
-| Fix the section you changed, or the one at the cursor | `⌃⌥F` |
-| Fix only part of the text | Select it, then `⌃⌥F` |
+| Fix the section you changed, or the one at the cursor | Tap `⌥` twice, or `⌃⌥F` |
+| Fix only part of the text | Select it, then the same shortcut |
 | Undo the last correction | `⌃⌥Z` |
 | Preview a change | Hover over the bar beside the section |
 | Apply or ignore one section | **적용** / **무시** in the preview |
@@ -114,6 +114,7 @@ The bar is yellow for *Proofread*, blue for *Polish* and purple for *Rewrite*. W
 |---------|---------|
 | Strength (교정 강도) | Proofread · Polish · Rewrite |
 | Scope (교정 범위) | Automatic · Section at cursor · All sections |
+| Shortcut (단축키) | Double-tap `⌥` on/off; `⌃⌥F` always works |
 | Background preparation (미리 교정) | On/off, bar on/off, excluded apps |
 | Personal dictionary (개인 사전) | One word per line; never changed |
 | History (교정 기록) | Off by default; view or delete everything |
@@ -147,7 +148,7 @@ typing pauses ─► read focused field ─► split into sections (rules, no AI
                                              ▼
                                    OpenRouter (cached) ─► bar + preview
                                              │
-⌃⌥F or Apply ─► is the text still the same? ─► write only the changed lines ─► verify
+⌥⌥ or Apply  ─► is the text still the same? ─► write only the changed lines ─► verify
 ```
 
 - **Sections** use three boundary strengths. Dividers, headings, two blank lines and skipped blocks always split; a single blank line or a list edge usually does; a single line break does only when that text uses line breaks as paragraphs.
@@ -195,6 +196,7 @@ Language model output varies, so `--evaluate` reports counts rather than pass or
 
 ## 🚧 Known Limitations
 
+- Double-tapping `⌥` may also trigger another app that uses the same gesture. Turn it off in settings and use `⌃⌥F`.
 - Used so far mainly in TextEdit, Slack and web text boxes. Other apps, and editors such as Google Docs, may not expose their text.
 - Many web editors don't report blank lines, so blank lines don't separate sections there.
 - Editors that use a separate field for each block may look like one section per block.

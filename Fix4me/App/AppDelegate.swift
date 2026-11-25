@@ -5,6 +5,7 @@ import SwiftUI
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem?
     private let history = HistoryStore()
+    private lazy var doubleTap = DoubleTapMonitor { [weak self] in self?.controller.correctFocused() }
     private let precomputer: Precomputer
     private let controller: CorrectionController
     private let settingsModel: SettingsModel
@@ -30,6 +31,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let ok2 = HotKeyCenter.shared.register(HotKeyCenter.revert) { [weak self] in self?.controller.revertLast() }
         settingsModel.hotKeysOK = ok1 && ok2
         precomputer.start()
+        doubleTap.start()
         history.prune()
 
         // 처음 실행이거나 준비가 덜 됐으면 설정 창부터
@@ -77,7 +79,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         item.button?.image = NSImage(systemSymbolName: "text.badge.checkmark", accessibilityDescription: "Fix4me")
 
         let menu = NSMenu()
-        menu.addItem(withTitle: "지금 교정  \(HotKeyCenter.correct.label)", action: #selector(correctNow), keyEquivalent: "").target = self
+        menu.addItem(withTitle: "지금 교정", action: #selector(correctNow), keyEquivalent: "").target = self
         menu.addItem(withTitle: "마지막 교정 되돌리기  \(HotKeyCenter.revert.label)", action: #selector(revertNow), keyEquivalent: "").target = self
         menu.addItem(.separator())
         menu.addItem(withTitle: "설정…", action: #selector(openSettings), keyEquivalent: ",").target = self

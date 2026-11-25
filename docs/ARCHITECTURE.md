@@ -5,7 +5,7 @@
 ## 흐름
 
 ```
-⌃⌥F (Carbon 전역 단축키)
+⌥ 두 번 (두 번째를 뗄 때) 또는 ⌃⌥F (Carbon 전역 단축키)
   → AXText.focused()        앞 앱의 포커스 요소·값·선택 범위 (Chrome/Electron 은 접근성 트리 강제 활성화 후 재시도)
   → TextScope.plan()        선택 영역 우선. 자동 = 바뀐 섹션(최대 8개), 없으면 커서 섹션 / 커서 섹션 / 모든 섹션
   → CorrectionService       캐시 적중이면 즉시, 미리 교정이 보내 둔 요청이면 이어받음
@@ -25,6 +25,7 @@
 | `Fix4me/App/main.swift`, `AppDelegate.swift` | 메뉴 막대 앱 수명주기, 단축키 등록, 설정 창 |
 | `Fix4me/App/CorrectionController.swift` | 교정·되돌리기 전체 흐름 (MainActor, 동시 실행 1개) |
 | `Fix4me/Core/AXText.swift` | Accessibility 읽기·쓰기·좌표, 붙여넣기 대체 경로 |
+| `Fix4me/Core/DoubleTap.swift` | ⌥ 두 번 누르기 판정(순수 로직)과 시스템 전체 감시 (키를 가로채지 않음) |
 | `Fix4me/Core/HotKeyCenter.swift` | Carbon `RegisterEventHotKey` 래퍼 |
 | `Fix4me/Core/OpenRouterClient.swift` | 교정 요청 1회, 오류 원문(status·metadata.raw) 보존 |
 | `Fix4me/App/Precomputer.swift` | 미리 교정: 0.3초마다 감시, 0.6초 멈추면 요청, 표시 (분당 30건 상한, 오류 시 쉼) |

@@ -23,6 +23,7 @@ final class SettingsModel {
     var dictionaryText = Prefs.dictionaryText { didSet { Prefs.dictionaryText = dictionaryText } }
     var excluded = Prefs.excluded { didSet { Prefs.excluded = excluded } }
 
+    var doubleTap = Prefs.doubleTap { didSet { Prefs.doubleTap = doubleTap } }
     var historyEnabled = Prefs.history { didSet { Prefs.history = historyEnabled } }
     private(set) var historyCount = 0
     @ObservationIgnored let history: HistoryStore
@@ -226,9 +227,10 @@ struct SettingsView: View {
             }
 
             Section("단축키") {
-                LabeledContent("포커스된 입력창 교정", value: HotKeyCenter.correct.label)
+                Toggle("⌥(Option) 두 번 눌러 교정", isOn: $model.doubleTap)
+                LabeledContent("포커스된 입력창 교정", value: model.doubleTap ? "⌥⌥ 또는 ⌃⌥F" : "⌃⌥F")
                 LabeledContent("마지막 교정 되돌리기", value: HotKeyCenter.revert.label)
-                Text("위에서 고른 교정 강도와 범위로 고쳐요.")
+                Text("위에서 고른 교정 강도와 범위로 고쳐요. ⌥ 두 번이 다른 앱과 겹치면 끄고 ⌃⌥F 를 쓰세요.")
                     .font(.caption).foregroundStyle(.secondary)
                 if !model.hotKeysOK {
                     Text("단축키 등록 실패 — 다른 앱이 같은 조합을 쓰고 있어요").foregroundStyle(.red)
