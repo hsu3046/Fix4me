@@ -85,11 +85,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             choice.toolTip = tab.summary
         }
         menu.addItem(.separator())
-        menu.addItem(withTitle: "지금 교정", action: #selector(correctNow), keyEquivalent: "").target = self
-        menu.addItem(withTitle: "마지막 교정 되돌리기  \(HotKeyCenter.revert.label)", action: #selector(revertNow), keyEquivalent: "").target = self
-        menu.addItem(.separator())
         menu.addItem(withTitle: "설정…", action: #selector(openSettings), keyEquivalent: ",").target = self
-        menu.addItem(withTitle: "교정 기록…", action: #selector(openHistory), keyEquivalent: "").target = self
         menu.addItem(withTitle: "Fix4me 종료", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         item.menu = menu
         statusItem = item
@@ -115,19 +111,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         settingsModel.hotKeysOK = ok
     }
 
-    /// 메뉴가 열릴 때마다: 지금 강도에 체크, 끈 동안에는 "지금 교정"을 흐리게
+    /// 메뉴가 열릴 때마다 지금 강도에 체크
     func validateMenuItem(_ item: NSMenuItem) -> Bool {
-        switch item.action {
-        case #selector(selectTab(_:)): item.state = LevelTab.all[item.tag] == settingsModel.tab ? .on : .off
-        case #selector(correctNow): return settingsModel.isOn
-        default: break
-        }
+        if item.action == #selector(selectTab(_:)) { item.state = LevelTab.all[item.tag] == settingsModel.tab ? .on : .off }
         return true
     }
 
     @objc private func selectTab(_ sender: NSMenuItem) { settingsModel.tab = LevelTab.all[sender.tag] }
-    @objc private func correctNow() { controller.correctFocused() }
-    @objc private func revertNow() { controller.revertLast() }
     @objc private func openSettings() { showSettings() }
     @objc private func openHistory() { showHistory() }
 
