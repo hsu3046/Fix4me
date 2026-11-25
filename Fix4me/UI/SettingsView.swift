@@ -12,7 +12,7 @@ final class SettingsModel {
     var message: String?
     var testing = false
     var hotKeysOK = true
-    /// 교정 강도 — 바꾸면 즉시 저장, 다음 ⌃⌥F 부터 적용 (didSet 안에서 자기 대입 금지: @Observable 재귀)
+    /// 교정 강도 — 바꾸면 즉시 저장, 다음 교정부터 적용 (didSet 안에서 자기 대입 금지: @Observable 재귀)
     var level = CorrectionLevel.current {
         didSet { CorrectionLevel.save(level) }
     }
@@ -75,10 +75,13 @@ final class SettingsModel {
 
     func stopPolling() { pollTask?.cancel() }
 
+    private(set) var keySaved = true
+
     func saveKey() {
         let key = keyInput.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !key.isEmpty else { return }
         let status = Keychain.save(Keychain.openRouterAccount, value: key)
+        keySaved = status == errSecSuccess
         keyInput = ""
         savedKeyHint = Self.keyHint()
         message = status == errSecSuccess ? "키를 키체인에 저장했어요" : "저장 실패 (OSStatus \(status))"
@@ -105,7 +108,7 @@ final class SettingsModel {
                 let result = try await OpenRouterClient(apiKey: key).correct(sample, level: level)
                 let s = (ContinuousClock.now - started).components
                 let secs = Double(s.seconds) + Double(s.attoseconds) / 1e18
-                message = String(format: "연결 OK · %.2f초\n→ %@", secs, result)
+                message = result.isEmpty ? "응답이 비어 있어요" : String(format: "연결됨 · %.1f초", secs)
             } catch {
                 message = error.localizedDescription
             }
@@ -123,129 +126,233 @@ final class SettingsModel {
 struct SettingsView: View {
     @Bindable var model: SettingsModel
     @State private var confirmingDelete = false
+    @State private var editingKey = false
+    @State private var showingExcluded = false
 
     var body: some View {
-        Form {
-            Section("손쉬운 사용 권한") {
-                HStack {
-                    Circle().fill(model.axTrusted ? .green : .red).frame(width: 8, height: 8)
-                    Text(model.axTrusted ? "허용됨" : "필요함 — 다른 앱의 입력창을 읽고 쓰려면 허용해야 해요")
-                    Spacer()
-                    if !model.axTrusted {
-                        Button("권한 요청") { AXText.requestTrust() }
-                        Button("시스템 설정 열기") {
-                            if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
-                                NSWorkspace.shared.open(url)
-                            }
-                        }
-                    }
-                }
+        VStack(spacing: 14) {
+            if !model.axTrusted { permission }
+            group("교정 강도") {
+                FullWidthSegments(items: CorrectionLevel.allCases.map { ($0.title, $0.summary) }, selection: index($model.level))
             }
-
-            Section("교정 강도") {
-                Picker("교정 강도", selection: $model.level) {
-                    ForEach(CorrectionLevel.allCases) { Text($0.title).tag($0) }
-                }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(model.level.summary)
-                    Text("예: \(model.level.example)").foregroundStyle(.secondary)
-                }
-                .font(.callout)
+            group("교정 범위") {
+                FullWidthSegments(items: ScopeMode.allCases.map { ($0.title, $0.summary) }, selection: index($model.scope))
             }
-
-            Section("교정 범위") {
-                Picker("교정 범위", selection: $model.scope) {
-                    ForEach(ScopeMode.allCases) { Text($0.title).tag($0) }
-                }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-                Text(model.scope.summary + " 선택한 글이 있으면 항상 그 부분만 고쳐요.").font(.callout)
+            HStack(alignment: .top, spacing: 14) {
+                VStack(spacing: 14) { precompute; shortcuts }
+                VStack(spacing: 14) { dictionary; history }
             }
-
-            Section("미리 교정") {
-                Toggle("입력이 멈추면 미리 교정해 두기", isOn: $model.precompute)
-                Toggle("고칠 섹션을 왼쪽 막대로 표시 (올리면 미리보기)", isOn: $model.indicator).disabled(!model.precompute)
-                Text("켜면 단축키를 누르지 않은 글도 OpenRouter 로 보내요. 비밀번호 입력란, 검색창, 주소창, 키처럼 보이는 글과 아래 앱은 보내지 않아요.")
-                    .font(.caption).foregroundStyle(.secondary)
-                DisclosureGroup("제외한 앱 \(model.excluded.count)개") {
-                    ForEach(model.excluded, id: \.self) { id in
-                        HStack {
-                            Text(SettingsModel.appName(id))
-                            Spacer()
-                            Button("제거") { model.excluded.removeAll { $0 == id } }
-                        }
-                    }
-                    Button("앱 추가…") { model.addExcludedApp() }
-                }
-                .disabled(!model.precompute)
-            }
-
-            Section("개인 사전") {
-                TextEditor(text: $model.dictionaryText)
-                    .font(.system(size: 13))
-                    .frame(height: 72)
-                Text("고치지 말아야 할 이름·용어를 한 줄에 하나씩 적어요. 지금 \(PersonalDictionary.parse(model.dictionaryText).count)개.")
-                    .font(.caption).foregroundStyle(.secondary)
-            }
-
-            Section("교정 기록") {
-                Toggle("교정 전후의 글을 이 Mac 에 저장", isOn: $model.historyEnabled)
-                HStack {
-                    Text("\(model.historyCount)건").foregroundStyle(.secondary)
-                    Spacer()
-                    Button("기록 보기…") { model.openHistory() }
-                    Button("모두 지우기…", role: .destructive) { confirmingDelete = true }.disabled(model.historyCount == 0)
-                }
-                Text("켜면 적용·무시·되돌린 교정의 원문이 저장돼요. 이 Mac 밖으로 보내지 않고 \(HistoryLog.retentionDays)일 뒤 지워요. 제외한 앱과 키처럼 보이는 글은 저장하지 않아요. 꺼도 이미 저장한 기록은 남아요.")
-                    .font(.caption).foregroundStyle(.secondary)
-            }
-            .confirmationDialog("교정 기록을 모두 지울까요? 되돌릴 수 없어요.", isPresented: $confirmingDelete) {
-                Button("모두 지우기", role: .destructive) { model.deleteHistory() }
-                Button("취소", role: .cancel) {}
-            }
-
-            Section("OpenRouter API 키") {
-                HStack {
-                    SecureField("sk-or-…", text: $model.keyInput)
-                        .textFieldStyle(.roundedBorder)
-                        .onSubmit { model.saveKey() }
-                    Button("저장") { model.saveKey() }.disabled(model.keyInput.isEmpty)
-                }
-                HStack {
-                    Text(model.savedKeyHint.map { "저장된 키 \($0)" } ?? "저장된 키 없음")
-                        .foregroundStyle(.secondary)
-                    Spacer()
-                    if model.savedKeyHint != nil {
-                        Button("삭제", role: .destructive) { model.deleteKey() }
-                    }
-                    Button(model.testing ? "테스트 중…" : "연결 테스트") { model.testConnection() }
-                        .disabled(model.testing || model.savedKeyHint == nil)
-                }
-                Text("모델: \(OpenRouterClient.defaultModel)").font(.caption).foregroundStyle(.secondary)
-            }
-
-            Section("단축키") {
-                Toggle("⌥(Option) 두 번 눌러 교정", isOn: $model.doubleTap)
-                LabeledContent("포커스된 입력창 교정", value: model.doubleTap ? "⌥⌥ 또는 ⌃⌥F" : "⌃⌥F")
-                LabeledContent("마지막 교정 되돌리기", value: HotKeyCenter.revert.label)
-                Text("위에서 고른 교정 강도와 범위로 고쳐요. ⌥ 두 번이 다른 앱과 겹치면 끄고 ⌃⌥F 를 쓰세요.")
-                    .font(.caption).foregroundStyle(.secondary)
-                if !model.hotKeysOK {
-                    Text("단축키 등록 실패 — 다른 앱이 같은 조합을 쓰고 있어요").foregroundStyle(.red)
-                }
-            }
-
-            if let message = model.message {
-                Text(message).font(.callout).textSelection(.enabled)
-            }
+            .fixedSize(horizontal: false, vertical: true)
+            connection
         }
-        .formStyle(.grouped)
-        // grouped Form 은 내부가 스크롤 영역이라 스스로 높이를 정하지 않는다 → 높이를 명시 (없으면 창이 0 높이로 접힘)
-        .frame(minWidth: 460, idealWidth: 520, maxWidth: .infinity,
-               minHeight: 360, idealHeight: 780, maxHeight: .infinity)
+        .padding(20)
+        .frame(width: 660)
         .onAppear { model.startPolling(); model.refreshHistory() }
         .onDisappear { model.stopPolling() }
+        .confirmationDialog("교정 기록을 모두 지울까요? 되돌릴 수 없어요.", isPresented: $confirmingDelete) {
+            Button("모두 지우기", role: .destructive) { model.deleteHistory() }
+            Button("취소", role: .cancel) {}
+        }
+    }
+
+    // MARK: - 카드
+
+    private var permission: some View {
+        card(nil) {
+            HStack {
+                Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
+                Text("손쉬운 사용 권한이 필요해요")
+                Spacer()
+                Button("권한 요청") { AXText.requestTrust() }
+                Button("시스템 설정 열기") {
+                    if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
+                        NSWorkspace.shared.open(url)
+                    }
+                }
+            }
+        }
+    }
+
+    private var precompute: some View {
+        card("미리 교정") {
+            row("입력을 멈추면 준비") { Toggle("", isOn: $model.precompute) }
+            row("왼쪽 막대로 표시") { Toggle("", isOn: $model.indicator).disabled(!model.precompute) }
+            row("제외할 앱") {
+                Button("\(model.excluded.count)개") { showingExcluded = true }
+                    .disabled(!model.precompute)
+                    .popover(isPresented: $showingExcluded, arrowEdge: .trailing) { excludedApps }
+            }
+            note("누르지 않은 글도 OpenRouter 로 보내요. 비밀번호·검색창·주소창은 빼요.")
+        }
+    }
+
+    private var shortcuts: some View {
+        card("단축키") {
+            row("⌥ 두 번으로 교정") { Toggle("", isOn: $model.doubleTap) }
+            row("교정") { Text(HotKeyCenter.correct.label).foregroundStyle(.secondary) }
+            row("되돌리기") { Text(HotKeyCenter.revert.label).foregroundStyle(.secondary) }
+            if !model.hotKeysOK {
+                Text("다른 앱이 같은 키를 쓰고 있어 등록하지 못했어요").font(.caption).foregroundStyle(.red)
+            }
+        }
+    }
+
+    private var dictionary: some View {
+        card("개인 사전", trailing: "\(PersonalDictionary.parse(model.dictionaryText).count)개") {
+            ZStack(alignment: .topLeading) {
+                TextEditor(text: $model.dictionaryText)
+                    .font(.system(size: 13))
+                    .scrollContentBackground(.hidden)
+                    .scrollIndicators(.never)
+                if model.dictionaryText.isEmpty {
+                    Text("고치지 않을 단어를 한 줄에 하나씩")
+                        .font(.system(size: 13)).foregroundStyle(.tertiary)
+                        .padding(.leading, 5).allowsHitTesting(false)
+                }
+            }
+            .padding(6)
+            .frame(minHeight: 84, maxHeight: .infinity)
+            .background(Color(nsColor: .textBackgroundColor), in: RoundedRectangle(cornerRadius: 6))
+        }
+    }
+
+    private var history: some View {
+        card("교정 기록", trailing: "\(model.historyCount)건") {
+            row("이 Mac 에 저장") { Toggle("", isOn: $model.historyEnabled) }
+            HStack {
+                Button("보기…") { model.openHistory() }
+                Button("모두 지우기…") { confirmingDelete = true }.disabled(model.historyCount == 0)
+                Spacer()
+            }
+            .controlSize(.small)
+            note("원문이 \(HistoryLog.retentionDays)일 동안 남아요. 밖으로 보내지 않아요.")
+        }
+    }
+
+    private var connection: some View {
+        card("OpenRouter") {
+            HStack {
+                if let hint = model.savedKeyHint, !editingKey {
+                    Text("키 \(hint)")
+                    Text(OpenRouterClient.defaultModel).foregroundStyle(.secondary)
+                    Spacer()
+                    if let message = model.message {
+                        Text(message).foregroundStyle(.secondary).lineLimit(1).truncationMode(.tail).help(message)
+                    }
+                    Button(model.testing ? "확인 중…" : "연결 확인") { model.testConnection() }.disabled(model.testing)
+                    Button("키 변경") { editingKey = true }
+                } else {
+                    SecureField("", text: $model.keyInput, prompt: Text("sk-or-…"))
+                        .textFieldStyle(.roundedBorder).labelsHidden()
+                        .onSubmit(saveKey)
+                    Button("저장", action: saveKey).disabled(model.keyInput.isEmpty)
+                    if model.savedKeyHint != nil {
+                        Button("삭제", role: .destructive) { model.deleteKey(); editingKey = false }
+                        Button("취소") { model.keyInput = ""; editingKey = false }
+                    }
+                }
+            }
+            .controlSize(.small)
+            if model.savedKeyHint == nil || editingKey, let message = model.message { note(message) }
+        }
+    }
+
+    private func saveKey() {
+        model.saveKey()
+        editingKey = !model.keySaved   // 저장에 실패하면 안내를 보이게 입력란을 남긴다
+    }
+
+    private var excludedApps: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            ScrollView {
+                VStack(spacing: 6) {
+                    ForEach(model.excluded, id: \.self) { id in
+                        row(SettingsModel.appName(id)) {
+                            Button { model.excluded.removeAll { $0 == id } } label: { Image(systemName: "minus.circle") }
+                                .buttonStyle(.borderless).help("목록에서 빼기")
+                        }
+                    }
+                }
+            }
+            .frame(height: 220)
+            Button("앱 추가…") { model.addExcludedApp() }
+        }
+        .padding(14)
+        .frame(width: 260)
+    }
+
+    // MARK: - 공통 모양
+
+    private func card(_ title: String?, trailing: String? = nil, @ViewBuilder content: () -> some View) -> some View {
+        group(title, trailing: trailing) {
+            VStack(alignment: .leading, spacing: 10, content: content)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                .padding(12)
+                .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 10))
+        }
+    }
+
+    private func group(_ title: String?, trailing: String? = nil, @ViewBuilder content: () -> some View) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            if let title {
+                HStack {
+                    Text(title).font(.system(size: 12, weight: .semibold)).foregroundStyle(.secondary)
+                    Spacer()
+                    if let trailing { Text(trailing).font(.system(size: 11)).foregroundStyle(.tertiary) }
+                }
+            }
+            content()
+        }
+    }
+
+    private func row(_ label: String, @ViewBuilder control: () -> some View) -> some View {
+        HStack {
+            Text(label).lineLimit(1)
+            Spacer(minLength: 8)
+            control().labelsHidden().toggleStyle(.switch).controlSize(.small)
+        }
+        .frame(minHeight: 20)
+    }
+
+    private func note(_ text: String) -> some View {
+        Text(text).font(.system(size: 11)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+    }
+
+    private func index<T: CaseIterable & Equatable>(_ value: Binding<T>) -> Binding<Int> where T.AllCases == [T] {
+        Binding(get: { T.allCases.firstIndex(of: value.wrappedValue) ?? 0 }, set: { value.wrappedValue = T.allCases[$0] })
+    }
+}
+
+/// 폭을 꽉 채우고 칸 너비가 모두 같은 선택 탭 (SwiftUI 의 segmented 는 글자 폭에 맞춰 줄어든다). 설명은 마우스를 올리면 보인다.
+struct FullWidthSegments: NSViewRepresentable {
+    let items: [(title: String, help: String)]
+    @Binding var selection: Int
+
+    func makeNSView(context: Context) -> NSSegmentedControl {
+        let control = NSSegmentedControl(
+            labels: items.map(\.title), trackingMode: .selectOne, target: context.coordinator, action: #selector(Coordinator.changed(_:))
+        )
+        control.segmentDistribution = .fillEqually
+        control.controlSize = .large
+        for (i, item) in items.enumerated() { control.setToolTip(item.help, forSegment: i) }
+        control.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        return control
+    }
+
+    func updateNSView(_ control: NSSegmentedControl, context: Context) {
+        context.coordinator.selection = $selection
+        if control.selectedSegment != selection { control.selectedSegment = selection }
+    }
+
+    func sizeThatFits(_ proposal: ProposedViewSize, nsView: NSSegmentedControl, context: Context) -> CGSize? {
+        CGSize(width: proposal.width ?? nsView.intrinsicContentSize.width, height: nsView.intrinsicContentSize.height)
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator(selection: $selection) }
+
+    @MainActor final class Coordinator: NSObject {
+        var selection: Binding<Int>
+        init(selection: Binding<Int>) { self.selection = selection }
+        @objc func changed(_ sender: NSSegmentedControl) { selection.wrappedValue = sender.selectedSegment }
     }
 }

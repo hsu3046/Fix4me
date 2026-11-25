@@ -2,7 +2,7 @@ import AppKit
 import SwiftUI
 
 enum HUDState: Equatable {
-    case working(String)   // 진행 문구 (강도별: 교정 중… / 다듬는 중…)
+    case working(String)   // 진행 문구 (강도별: 문법 교정 중… / 문장 개선 중…)
     case done(count: Int, hunks: [TextDiff.Hunk], seconds: Double)
     case noChange(seconds: Double)
     case reverted

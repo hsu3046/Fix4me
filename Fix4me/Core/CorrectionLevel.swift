@@ -27,8 +27,8 @@ enum CorrectionLevel: String, CaseIterable, Identifiable, Sendable {
 
     var title: String {
         switch self {
-        case .proofread: "교정"
-        case .polish: "다듬기"
+        case .proofread: "문법 교정"
+        case .polish: "문장 개선"
         case .rewrite: "다시 쓰기"
         }
     }
@@ -36,8 +36,8 @@ enum CorrectionLevel: String, CaseIterable, Identifiable, Sendable {
     /// HUD 진행 문구
     var workingTitle: String {
         switch self {
-        case .proofread: "교정 중…"
-        case .polish: "다듬는 중…"
+        case .proofread: "문법 교정 중…"
+        case .polish: "문장 개선 중…"
         case .rewrite: "다시 쓰는 중…"
         }
     }
@@ -47,14 +47,6 @@ enum CorrectionLevel: String, CaseIterable, Identifiable, Sendable {
         case .proofread: "맞춤법·문법·오타·띄어쓰기만 고쳐요. 맞는 문장은 그대로 둬요."
         case .polish: "틀린 곳에 더해 어색한 어순·단어·군더더기·번역투를 자연스럽게 고쳐요. 의미와 말투는 유지해요."
         case .rewrite: "문장 구조를 바꿔서라도 더 명확하고 매끄럽게 다시 써요. 내용과 말투는 유지해요."
-        }
-    }
-
-    var example: String {
-        switch self {
-        case .proofread: "I has a apple → I have an apple"
-        case .polish: "역할에 대해서 확인을 하는 것이 필요하다고 생각되어집니다 → 역할을 확인할 필요가 있다고 생각합니다"
-        case .rewrite: "It was a very successful beta test → The beta test was a great success"
         }
     }
 
