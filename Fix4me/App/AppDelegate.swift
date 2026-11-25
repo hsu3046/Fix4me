@@ -45,8 +45,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if settingsWindow == nil {
             let window = NSWindow(contentViewController: NSHostingController(rootView: SettingsView(model: settingsModel)))
             window.title = "Fix4me 설정"
-            window.styleMask = [.titled, .closable]
+            window.styleMask = [.titled, .closable, .resizable]
             window.isReleasedWhenClosed = false
+            // 내용의 fitting size 에 기대지 않고 첫 크기를 명시 (SettingsView 의 ideal 크기와 같게)
+            window.setContentSize(NSSize(width: 520, height: 540))
+            window.contentMinSize = NSSize(width: 460, height: 360)
             settingsWindow = window
         }
         settingsWindow?.center()

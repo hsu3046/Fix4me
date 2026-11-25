@@ -129,7 +129,9 @@ struct SettingsView: View {
             }
         }
         .formStyle(.grouped)
-        .frame(width: 520)
+        // grouped Form 은 내부가 스크롤 영역이라 스스로 높이를 정하지 않는다 → 높이를 명시 (없으면 창이 0 높이로 접힘)
+        .frame(minWidth: 460, idealWidth: 520, maxWidth: .infinity,
+               minHeight: 360, idealHeight: 540, maxHeight: .infinity)
         .onAppear { model.startPolling() }
         .onDisappear { model.stopPolling() }
     }
