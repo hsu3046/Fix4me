@@ -1,19 +1,65 @@
 {
-  "fill" : "automatic",
+  "fill" : {
+    "solid" : "display-p3:0.31812,0.26147,0.84570,1.00000"
+  },
   "groups" : [
     {
       "layers" : [
         {
-          "glass" : true,
+          "blend-mode-specializations" : [
+            {
+              "appearance" : "tinted",
+              "value" : "normal"
+            }
+          ],
+          "glass-specializations" : [
+            {
+              "value" : true
+            },
+            {
+              "appearance" : "tinted",
+              "value" : false
+            }
+          ],
+          "hidden-specializations" : [
+            {
+              "idiom" : "square",
+              "value" : false
+            }
+          ],
           "image-name" : "character.png",
           "name" : "character",
-          "position" : {
-            "scale" : 0.9,
-            "translation-in-points" : [
-              0,
-              0
-            ]
-          }
+          "position-specializations" : [
+            {
+              "value" : {
+                "scale" : 1,
+                "translation-in-points" : [
+                  0,
+                  0
+                ]
+              }
+            },
+            {
+              "idiom" : "square",
+              "value" : {
+                "scale" : 1,
+                "translation-in-points" : [
+                  0,
+                  0
+                ]
+              }
+            },
+            {
+              "idiom" : "watchOS",
+              "value" : {
+                "scale" : 0.9,
+                "translation-in-points" : [
+                  0,
+                  0
+                ]
+              }
+            }
+          ]
         }
       ],
       "shadow" : {
