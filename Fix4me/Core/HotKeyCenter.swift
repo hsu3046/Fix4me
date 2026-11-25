@@ -18,11 +18,12 @@ final class HotKeyCenter {
     static let revert = Binding(id: 2, keyCode: UInt32(kVK_ANSI_Z), modifiers: UInt32(controlKey | optionKey), label: "⌃⌥Z")
 
     private var handlers: [UInt32: () -> Void] = [:]
-    private var refs: [EventHotKeyRef] = []
+    private var refs: [UInt32: EventHotKeyRef] = [:]
     private var handlerInstalled = false
 
     /// 등록 성공 여부를 돌려준다 (다른 앱이 이미 점유하면 false).
     func register(_ binding: Binding, handler: @escaping () -> Void) -> Bool {
+        if refs[binding.id] != nil { handlers[binding.id] = handler; return true }
         installHandlerIfNeeded()
         var ref: EventHotKeyRef?
         let hotKeyID = EventHotKeyID(signature: OSType(0x4634_4D45) /* 'F4ME' */, id: binding.id)
@@ -30,9 +31,15 @@ final class HotKeyCenter {
             binding.keyCode, binding.modifiers, hotKeyID, GetApplicationEventTarget(), 0, &ref
         )
         guard status == noErr, let ref else { return false }
-        refs.append(ref)
+        refs[binding.id] = ref
         handlers[binding.id] = handler
         return true
+    }
+
+    /// 등록을 풀어 다른 앱이 그 키를 쓸 수 있게 한다
+    func unregister(_ binding: Binding) {
+        if let ref = refs.removeValue(forKey: binding.id) { UnregisterEventHotKey(ref) }
+        handlers[binding.id] = nil
     }
 
     private func fire(_ id: UInt32) { handlers[id]?() }

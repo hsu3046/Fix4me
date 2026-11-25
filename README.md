@@ -98,7 +98,7 @@ If the permission still shows as missing, quit and reopen the app.
 
 | Action | How |
 |--------|-----|
-| Fix the section you changed, or the one at the cursor | Tap `⌥` twice, or `⌃⌥F` |
+| Fix the section you changed, or the one at the cursor | Tap `⌥` twice |
 | Fix only part of the text | Select it, then the same shortcut |
 | Undo the last correction | `⌃⌥Z` |
 | Preview a change | Hover over the bar beside the section |
@@ -114,7 +114,7 @@ The bar is yellow for *Proofread*, blue for *Polish* and purple for *Rewrite*. W
 |---------|---------|
 | Strength (교정 강도) | Proofread · Polish · Rewrite |
 | Scope (교정 범위) | Automatic · Section at cursor · All sections |
-| Shortcut (단축키) | Double-tap `⌥` on/off; `⌃⌥F` always works |
+| Shortcut (단축키) | Double-tap `⌥` or `⌃⌥F`; only the chosen one is active |
 | Background preparation (미리 교정) | On/off, bar on/off, excluded apps |
 | Personal dictionary (개인 사전) | One word per line; never changed |
 | History (교정 기록) | Off by default; view or delete everything |
@@ -196,7 +196,7 @@ Language model output varies, so `--evaluate` reports counts rather than pass or
 
 ## 🚧 Known Limitations
 
-- Double-tapping `⌥` may also trigger another app that uses the same gesture. Turn it off in settings and use `⌃⌥F`.
+- Double-tapping `⌥` may also trigger another app that uses the same gesture. Switch to `⌃⌥F` in settings.
 - Used so far mainly in TextEdit, Slack and web text boxes. Other apps, and editors such as Google Docs, may not expose their text.
 - Many web editors don't report blank lines, so blank lines don't separate sections there.
 - Editors that use a separate field for each block may look like one section per block.

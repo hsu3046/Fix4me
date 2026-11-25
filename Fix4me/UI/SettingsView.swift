@@ -23,7 +23,13 @@ final class SettingsModel {
     var dictionaryText = Prefs.dictionaryText { didSet { Prefs.dictionaryText = dictionaryText } }
     var excluded = Prefs.excluded { didSet { Prefs.excluded = excluded } }
 
-    var doubleTap = Prefs.doubleTap { didSet { Prefs.doubleTap = doubleTap } }
+    var doubleTap = Prefs.doubleTap {
+        didSet {
+            Prefs.doubleTap = doubleTap
+            shortcutsChanged()
+        }
+    }
+    @ObservationIgnored var shortcutsChanged: () -> Void = {}
     var historyEnabled = Prefs.history { didSet { Prefs.history = historyEnabled } }
     private(set) var historyCount = 0
     @ObservationIgnored let history: HistoryStore
@@ -138,11 +144,9 @@ struct SettingsView: View {
             group("교정 범위") {
                 FullWidthSegments(items: ScopeMode.allCases.map { ($0.title, $0.summary) }, selection: index($model.scope))
             }
-            HStack(alignment: .top, spacing: 14) {
-                VStack(spacing: 14) { precompute; shortcuts }
-                VStack(spacing: 14) { dictionary; history }
-            }
-            .fixedSize(horizontal: false, vertical: true)
+            // 같은 줄의 두 카드는 높이가 같다
+            pair { precompute } _: { dictionary }
+            pair { shortcuts } _: { history }
             connection
         }
         .padding(20)
@@ -188,8 +192,13 @@ struct SettingsView: View {
 
     private var shortcuts: some View {
         card("단축키") {
-            row("⌥ 두 번으로 교정") { Toggle("", isOn: $model.doubleTap) }
-            row("교정") { Text(HotKeyCenter.correct.label).foregroundStyle(.secondary) }
+            row("교정") {
+                Picker("", selection: $model.doubleTap) {
+                    Text("⌥ 두 번").tag(true)
+                    Text(HotKeyCenter.correct.label).tag(false)
+                }
+                .pickerStyle(.segmented).fixedSize()
+            }
             row("되돌리기") { Text(HotKeyCenter.revert.label).foregroundStyle(.secondary) }
             if !model.hotKeysOK {
                 Text("다른 앱이 같은 키를 쓰고 있어 등록하지 못했어요").font(.caption).foregroundStyle(.red)
@@ -198,7 +207,7 @@ struct SettingsView: View {
     }
 
     private var dictionary: some View {
-        card("개인 사전", trailing: "\(PersonalDictionary.parse(model.dictionaryText).count)개") {
+        group("개인 사전", trailing: "\(PersonalDictionary.parse(model.dictionaryText).count)개") {
             ZStack(alignment: .topLeading) {
                 TextEditor(text: $model.dictionaryText)
                     .font(.system(size: 13))
@@ -210,22 +219,22 @@ struct SettingsView: View {
                         .padding(.leading, 5).allowsHitTesting(false)
                 }
             }
-            .padding(6)
-            .frame(minHeight: 84, maxHeight: .infinity)
-            .background(Color(nsColor: .textBackgroundColor), in: RoundedRectangle(cornerRadius: 6))
+            .padding(.horizontal, 7).padding(.vertical, 12)
+            .frame(maxWidth: .infinity, minHeight: 84, maxHeight: .infinity)
+            .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 10))
         }
     }
 
     private var history: some View {
         card("교정 기록", trailing: "\(model.historyCount)건") {
             row("이 Mac 에 저장") { Toggle("", isOn: $model.historyEnabled) }
+                .help("원문이 이 Mac 에만 \(HistoryLog.retentionDays)일 동안 남아요.")
             HStack {
                 Button("보기…") { model.openHistory() }
                 Button("모두 지우기…") { confirmingDelete = true }.disabled(model.historyCount == 0)
                 Spacer()
             }
             .controlSize(.small)
-            note("원문이 \(HistoryLog.retentionDays)일 동안 남아요. 밖으로 보내지 않아요.")
         }
     }
 
@@ -290,6 +299,11 @@ struct SettingsView: View {
                 .padding(12)
                 .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 10))
         }
+    }
+
+    private func pair(@ViewBuilder _ left: () -> some View, @ViewBuilder _ right: () -> some View) -> some View {
+        HStack(alignment: .top, spacing: 14) { left(); right() }
+            .fixedSize(horizontal: false, vertical: true)
     }
 
     private func group(_ title: String?, trailing: String? = nil, @ViewBuilder content: () -> some View) -> some View {

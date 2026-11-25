@@ -27,9 +27,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         setUpMainMenu()
         setUpStatusItem()
-        let ok1 = HotKeyCenter.shared.register(HotKeyCenter.correct) { [weak self] in self?.controller.correctFocused() }
-        let ok2 = HotKeyCenter.shared.register(HotKeyCenter.revert) { [weak self] in self?.controller.revertLast() }
-        settingsModel.hotKeysOK = ok1 && ok2
+        applyShortcuts()
+        settingsModel.shortcutsChanged = { [weak self] in self?.applyShortcuts() }
         precomputer.start()
         doubleTap.start()
         history.prune()
@@ -87,6 +86,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(withTitle: "Fix4me 종료", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         item.menu = menu
         statusItem = item
+    }
+
+    /// 교정 단축키는 하나만: ⌥ 두 번을 고르면 ⌃⌥F 등록을 풀고, 아니면 그 반대
+    private func applyShortcuts() {
+        var ok = HotKeyCenter.shared.register(HotKeyCenter.revert) { [weak self] in self?.controller.revertLast() }
+        if Prefs.doubleTap {
+            HotKeyCenter.shared.unregister(HotKeyCenter.correct)
+        } else {
+            ok = HotKeyCenter.shared.register(HotKeyCenter.correct) { [weak self] in self?.controller.correctFocused() } && ok
+        }
+        settingsModel.hotKeysOK = ok
     }
 
     @objc private func correctNow() { controller.correctFocused() }
