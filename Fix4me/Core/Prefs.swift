@@ -39,7 +39,7 @@ enum Prefs {
     /// 개인 사전 (입력한 그대로의 글)
     static var dictionaryText: String {
         get { SharedStore.dictionaryText }
-        set { SharedStore.dictionaryText = newValue }
+        set { SharedStore.saveDictionary(newValue) }
     }
 
     static var dictionary: [String] { PersonalDictionary.parse(dictionaryText) }

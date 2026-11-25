@@ -160,7 +160,7 @@ final class KeyboardModel {
 enum Stub {
     static var isOn: Bool {
         #if DEBUG
-        SharedStore.defaults.bool(forKey: "stubCorrections")
+        SharedStore.stubCorrections
         #else
         false
         #endif

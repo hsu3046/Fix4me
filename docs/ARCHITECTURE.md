@@ -62,9 +62,9 @@
 | `Shared/KeyboardDocument.swift` | 읽기·쓰기 로직 (`KeyboardProxy` 로 시험 가능, `Fix4meTests/KeyboardTests.swift`) |
 | `Fix4meiOS/Keyboard/` | 키보드 확장: 컨트롤러, 상태(`KeyboardModel`), 화면 |
 | `Fix4meiOS/App/` | 설정 앱: 키보드 켜기 안내, API 키, 강도, 개인 사전, 써 보기 |
-| `Fix4meiOS/Support/` | Info.plist·entitlements (앱 그룹과 키체인 공유) |
+| `Fix4meiOS/Support/` | Info.plist·entitlements (키체인 공유) |
 
-- 키는 공유 키체인, 강도·사전은 앱 그룹. 네트워크와 공유 저장소 때문에 **전체 접근 허용**이 필요하다.
+- 키·강도·사전 모두 앱과 키보드가 공유하는 키체인에 둔다(`KeychainSettings`). 네트워크 때문에 **전체 접근 허용**이 필요하다.
 - DEBUG 의 "가짜 교정"은 전송 없이 정해 둔 교정을 보여 준다(키 없이 화면 확인용).
 
 iOS 실측(시뮬레이터 27.0):
@@ -75,6 +75,15 @@ iOS 실측(시뮬레이터 27.0):
 - 읽기는 짧은 글도 약 0.6초 (글의 양 끝인지 확인하느라 각 0.25초 기다림).
 
 ## 빌드
+
+iPhone 설치 (TEAM·UDID 는 자기 것으로, 처음 한 번은 Xcode 에 Apple 계정 로그인 필요):
+
+```bash
+xcodebuild -project Fix4me.xcodeproj -scheme Fix4meiOS -configuration Release -destination 'generic/platform=iOS' -derivedDataPath build/iOSDevice -allowProvisioningUpdates DEVELOPMENT_TEAM=TEAM CODE_SIGN_STYLE=Automatic build
+xcrun devicectl device install app --device UDID build/iOSDevice/Build/Products/Release-iphoneos/Fix4me.app
+```
+
+Mac:
 
 ```bash
 ./scripts/build.sh        # xcodegen → xcodebuild → Apple Development 인증서 서명 → dist/Fix4me.app

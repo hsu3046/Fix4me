@@ -15,6 +15,7 @@ struct ContentView: View {
     @State private var savedHint = Self.keyHint()
     @State private var editingKey = false
     @State private var message: String?
+    @State private var settingsFailed = false
     @State private var sample = Self.initialSample
 
     private static var initialSample: String {
@@ -24,7 +25,7 @@ struct ContentView: View {
         return "어제 정한 사항을 않 지키면 문제가 됩니다.\n이번주 금요일 까지 확인 부탁드려요."
     }
     #if DEBUG
-    @State private var stub = SharedStore.defaults.bool(forKey: "stubCorrections")
+    @State private var stub = SharedStore.stubCorrections
     #endif
 
     var body: some View {
@@ -54,17 +55,18 @@ struct ContentView: View {
                 Section("교정 강도") {
                     Picker("교정 강도", selection: $level) { ForEach(CorrectionLevel.allCases) { Text($0.title).tag($0) } }
                         .pickerStyle(.segmented).labelsHidden()
-                        .onChange(of: level) { CorrectionLevel.save(level) }
+                        .onChange(of: level) { settingsFailed = !CorrectionLevel.save(level) }
                 }
                 Section("개인 사전") {
                     TextField("고치지 않을 단어를 한 줄에 하나씩", text: $dictionary, axis: .vertical).lineLimit(3...8)
-                        .onChange(of: dictionary) { SharedStore.dictionaryText = dictionary }
+                        .onChange(of: dictionary) { settingsFailed = !SharedStore.saveDictionary(dictionary) }
+                    if settingsFailed { Text("설정을 저장하지 못했어요").font(.footnote).foregroundStyle(.red) }
                 }
                 Section("써 보기") {
                     TextEditor(text: $sample).frame(minHeight: 110)
                 }
                 #if DEBUG
-                Section("개발용") { Toggle("가짜 교정 (전송 안 함)", isOn: $stub).onChange(of: stub) { SharedStore.defaults.set(stub, forKey: "stubCorrections") } }
+                Section("개발용") { Toggle("가짜 교정 (전송 안 함)", isOn: $stub).onChange(of: stub) { SharedStore.stubCorrections = stub } }
                 #endif
             }
             .navigationTitle("Fix4me")

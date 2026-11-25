@@ -95,7 +95,7 @@ If the permission still shows as missing, quit and reopen the app.
 
 ### iPhone keyboard
 
-Open `Fix4me.xcodeproj` (run `xcodegen generate` first), choose your team for the `Fix4meiOS` and `Fix4meKeyboard` targets, and run the `Fix4meiOS` scheme on your iPhone. Bundle IDs and the app group must be unique, so change `com.aib.fix4me` in `project.yml`, `Fix4meiOS/Support/App.entitlements` and the shared code to your own.
+Open `Fix4me.xcodeproj` (run `xcodegen generate` first), choose your team for the `Fix4meiOS` and `Fix4meKeyboard` targets, and run the `Fix4meiOS` scheme on your iPhone. Bundle IDs must be unique, so change `com.aib.fix4me.ios` and `com.aib.fix4me.ios.keyboard` in `project.yml` to your own.
 
 1. *Settings → General → Keyboard → Keyboards*: add Fix4me and turn on **Allow Full Access** (needed for the network and the shared key).
 2. Paste your OpenRouter key in the Fix4me app.

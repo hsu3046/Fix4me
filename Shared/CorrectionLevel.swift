@@ -8,19 +8,20 @@ enum CorrectionLevel: String, CaseIterable, Identifiable, Sendable {
 
     var id: String { rawValue }
 
-    // MARK: - 저장 (UserDefaults)
+    // MARK: - 저장
 
     static let defaultsKey = "correctionLevel"
 
     /// 저장된 값이 없거나 알 수 없는 값이면 가장 보수적인 교정
     static var current: CorrectionLevel { load() }
 
-    static func load(from defaults: UserDefaults = SharedStore.defaults) -> CorrectionLevel {
-        defaults.string(forKey: defaultsKey).flatMap(CorrectionLevel.init(rawValue:)) ?? .proofread
+    static func load(from store: any SettingsStore = SharedStore.store) -> CorrectionLevel {
+        store.string(forKey: defaultsKey).flatMap(CorrectionLevel.init(rawValue:)) ?? .proofread
     }
 
-    static func save(_ level: CorrectionLevel, to defaults: UserDefaults = SharedStore.defaults) {
-        defaults.set(level.rawValue, forKey: defaultsKey)
+    @discardableResult
+    static func save(_ level: CorrectionLevel, to store: any SettingsStore = SharedStore.store) -> Bool {
+        store.save(level.rawValue, forKey: defaultsKey)
     }
 
     // MARK: - 화면 문구
