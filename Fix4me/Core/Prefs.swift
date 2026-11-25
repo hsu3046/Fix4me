@@ -7,7 +7,6 @@ enum Prefs {
         static let precompute = "precomputeEnabled"
         static let badge = "badgeEnabled"
         static let excluded = "excludedBundleIDs"
-        static let dictionary = "personalDictionary"
         static let history = "historyEnabled"
         static let doubleTap = "doubleTapEnabled"
     }
@@ -39,8 +38,8 @@ enum Prefs {
 
     /// 개인 사전 (입력한 그대로의 글)
     static var dictionaryText: String {
-        get { UserDefaults.standard.string(forKey: Key.dictionary) ?? "" }
-        set { UserDefaults.standard.set(newValue, forKey: Key.dictionary) }
+        get { SharedStore.dictionaryText }
+        set { SharedStore.dictionaryText = newValue }
     }
 
     static var dictionary: [String] { PersonalDictionary.parse(dictionaryText) }

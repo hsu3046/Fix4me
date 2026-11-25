@@ -4,6 +4,14 @@ import Foundation
 enum SharedStore {
     static let appGroup = "group.com.aib.fix4me"
 
+    private static let dictionaryKey = "personalDictionary"
+
+    /// 개인 사전 (입력한 그대로의 글)
+    static var dictionaryText: String {
+        get { defaults.string(forKey: dictionaryKey) ?? "" }
+        set { defaults.set(newValue, forKey: dictionaryKey) }
+    }
+
     /// UserDefaults 는 스레드에 안전하지만 Sendable 로 표시돼 있지 않아 매번 꺼낸다
     static var defaults: UserDefaults {
         #if os(iOS)

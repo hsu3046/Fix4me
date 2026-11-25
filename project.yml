@@ -31,6 +31,54 @@ targets:
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon   # Fix4me/AppIcon.icon (Icon Composer)
     scheme:
       testTargets: [Fix4meTests]
+  Fix4meiOS:
+    type: application
+    platform: iOS
+    deploymentTarget: "18.0"
+    sources: [Fix4meiOS/App, Fix4me/AppIcon.icon, Shared]
+    info:
+      path: Fix4meiOS/Support/App-Info.plist
+      properties:
+        CFBundleDisplayName: Fix4me
+        CFBundleShortVersionString: "0.1.0"
+        CFBundleVersion: "1"
+        UILaunchScreen: {}
+        UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.aib.fix4me.ios
+        PRODUCT_NAME: Fix4me
+        CODE_SIGNING_ALLOWED: YES
+        CODE_SIGN_ENTITLEMENTS: Fix4meiOS/Support/App.entitlements
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        TARGETED_DEVICE_FAMILY: "1"
+    dependencies:
+      - target: Fix4meKeyboard
+  Fix4meKeyboard:
+    type: app-extension
+    platform: iOS
+    deploymentTarget: "18.0"
+    sources: [Fix4meiOS/Keyboard, Shared]
+    info:
+      path: Fix4meiOS/Support/Keyboard-Info.plist
+      properties:
+        CFBundleDisplayName: Fix4me
+        CFBundleShortVersionString: "0.1.0"
+        CFBundleVersion: "1"
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.keyboard-service
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).KeyboardViewController
+          NSExtensionAttributes:
+            IsASCIICapable: false
+            PrefersRightToLeft: false
+            PrimaryLanguage: mul
+            RequestsOpenAccess: true
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.aib.fix4me.ios.keyboard
+        CODE_SIGNING_ALLOWED: YES
+        CODE_SIGN_ENTITLEMENTS: Fix4meiOS/Support/App.entitlements
+        TARGETED_DEVICE_FAMILY: "1"
   Fix4meTests:
     type: bundle.unit-test
     platform: macOS

@@ -1,7 +1,7 @@
 import Foundation
 import Security
 
-/// 로그인 키체인의 일반 암호 항목. 같은 인증서로 서명된 이 앱만 묻지 않고 읽는다.
+/// 일반 암호 항목. Mac 은 로그인 키체인(같은 인증서의 이 앱만 묻지 않고 읽음), iPhone 은 앱과 키보드가 공유하는 키체인 그룹.
 enum Keychain {
     static let service = "com.aib.fix4me"
     static let openRouterAccount = "openrouter-api-key"
@@ -33,6 +33,9 @@ enum Keychain {
         if status != errSecItemNotFound { return status }
         var add = base
         add[kSecValueData as String] = data
+        #if os(iOS)
+        add[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly   // 백업·다른 기기로 옮기지 않는다
+        #endif
         return SecItemAdd(add as CFDictionary, nil)
     }
 
