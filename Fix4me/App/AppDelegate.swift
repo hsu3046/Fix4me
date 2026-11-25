@@ -2,7 +2,7 @@ import AppKit
 import SwiftUI
 
 @MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private var statusItem: NSStatusItem?
     private let history = HistoryStore()
     private lazy var doubleTap = DoubleTapMonitor { [weak self] in self?.controller.correctFocused() }
@@ -78,6 +78,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
 
         let menu = NSMenu()
+        for (i, tab) in LevelTab.all.enumerated() {
+            let choice = menu.addItem(withTitle: tab.title, action: #selector(selectTab(_:)), keyEquivalent: "")
+            choice.target = self
+            choice.tag = i
+            choice.toolTip = tab.summary
+        }
+        menu.addItem(.separator())
         menu.addItem(withTitle: "지금 교정", action: #selector(correctNow), keyEquivalent: "").target = self
         menu.addItem(withTitle: "마지막 교정 되돌리기  \(HotKeyCenter.revert.label)", action: #selector(revertNow), keyEquivalent: "").target = self
         menu.addItem(.separator())
@@ -108,6 +115,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         settingsModel.hotKeysOK = ok
     }
 
+    /// 메뉴가 열릴 때마다: 지금 강도에 체크, 끈 동안에는 "지금 교정"을 흐리게
+    func validateMenuItem(_ item: NSMenuItem) -> Bool {
+        switch item.action {
+        case #selector(selectTab(_:)): item.state = LevelTab.all[item.tag] == settingsModel.tab ? .on : .off
+        case #selector(correctNow): return settingsModel.isOn
+        default: break
+        }
+        return true
+    }
+
+    @objc private func selectTab(_ sender: NSMenuItem) { settingsModel.tab = LevelTab.all[sender.tag] }
     @objc private func correctNow() { controller.correctFocused() }
     @objc private func revertNow() { controller.revertLast() }
     @objc private func openSettings() { showSettings() }

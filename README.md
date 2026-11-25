@@ -111,6 +111,7 @@ Open `Fix4me.xcodeproj` (run `xcodegen generate` first), choose your team for th
 | Undo the last correction | `⌃⌥Z` |
 | Preview a change | Hover over the bar beside the section |
 | Apply or ignore one section | **적용** / **무시** in the preview |
+| Change strength or turn it off | Menu bar icon |
 | Open settings | Dock icon, or `⌘,` |
 | Open history | `⌘Y` |
 
