@@ -7,6 +7,7 @@ enum Prefs {
         static let precompute = "precomputeEnabled"
         static let badge = "badgeEnabled"
         static let excluded = "excludedBundleIDs"
+        static let dictionary = "personalDictionary"
     }
 
     static var scope: ScopeMode {
@@ -19,7 +20,16 @@ enum Prefs {
         set { UserDefaults.standard.set(newValue, forKey: Key.precompute) }
     }
 
-    static var badge: Bool {
+    /// 개인 사전 (입력한 그대로의 글)
+    static var dictionaryText: String {
+        get { UserDefaults.standard.string(forKey: Key.dictionary) ?? "" }
+        set { UserDefaults.standard.set(newValue, forKey: Key.dictionary) }
+    }
+
+    static var dictionary: [String] { PersonalDictionary.parse(dictionaryText) }
+
+    /// 고칠 곳 표시 (왼쪽 막대)
+    static var indicator: Bool {
         get { UserDefaults.standard.object(forKey: Key.badge) as? Bool ?? true }
         set { UserDefaults.standard.set(newValue, forKey: Key.badge) }
     }

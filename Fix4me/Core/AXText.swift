@@ -115,6 +115,33 @@ enum AXText {
         return screenRect(of: NSRange(location: loc, length: 1), in: field.element)
     }
 
+    /// 입력창에서 실제로 보이는 화면 영역 (입력창 ∩ 스크롤 영역 ∩ 창). 모르면 nil.
+    static func visibleFrame(_ element: AXUIElement) -> NSRect? {
+        guard var rect = frame(element) else { return nil }
+        if let parent = copyElement(element, kAXParentAttribute),
+           copyString(parent, kAXRoleAttribute) == (kAXScrollAreaRole as String), let f = frame(parent) {
+            rect = rect.intersection(f)
+        }
+        if let window = copyElement(element, kAXWindowAttribute), let f = frame(window) { rect = rect.intersection(f) }
+        return rect.isNull || rect.isEmpty ? nil : rect
+    }
+
+    private static func frame(_ element: AXUIElement) -> NSRect? {
+        var p: CFTypeRef?, s: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(element, kAXPositionAttribute as CFString, &p) == .success,
+              AXUIElementCopyAttributeValue(element, kAXSizeAttribute as CFString, &s) == .success,
+              let p, let s, CFGetTypeID(p) == AXValueGetTypeID(), CFGetTypeID(s) == AXValueGetTypeID(),
+              let primary = NSScreen.screens.first else { return nil }
+        var origin = CGPoint.zero, size = CGSize.zero
+        guard AXValueGetValue(p as! AXValue, .cgPoint, &origin), AXValueGetValue(s as! AXValue, .cgSize, &size) else { return nil }
+        return NSRect(x: origin.x, y: primary.frame.height - origin.y - size.height, width: size.width, height: size.height)
+    }
+
+    /// 감시용(짧은 제한 시간)으로 얻은 입력창을 쓰기에 맞게 되돌린다
+    static func prepareForWriting(_ element: AXUIElement) {
+        AXUIElementSetMessagingTimeout(element, 1.0)
+    }
+
     /// 이 입력창이 지금도 앞 앱의 포커스인지 (붙여넣기를 엉뚱한 곳에 보내지 않기 위해)
     static func isFocused(_ element: AXUIElement) -> Bool {
         var pid: pid_t = 0

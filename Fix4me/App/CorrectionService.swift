@@ -7,21 +7,22 @@ final class CorrectionService {
     private var inFlight: [CorrectionCache.Key: Task<String, Error>] = [:]
 
     func cached(_ text: String, level: CorrectionLevel) -> String? {
-        cache.value(for: .init(level: level, text: text))
+        cache.value(for: .init(level: level, text: text, dictionary: Prefs.dictionary))
     }
 
     func isInFlight(_ text: String, level: CorrectionLevel) -> Bool {
-        inFlight[.init(level: level, text: text)] != nil
+        inFlight[.init(level: level, text: text, dictionary: Prefs.dictionary)] != nil
     }
 
     func correct(_ text: String, level: CorrectionLevel, before: String, after: String) async throws -> String {
-        let key = CorrectionCache.Key(level: level, text: text)
+        let dictionary = Prefs.dictionary
+        let key = CorrectionCache.Key(level: level, text: text, dictionary: dictionary)
         if let hit = cache.value(for: key) { return hit }
         if let running = inFlight[key] { return try await running.value }
 
         guard let apiKey = Keychain.read(Keychain.openRouterAccount), !apiKey.isEmpty else { throw CorrectionError.missingKey }
         let client = OpenRouterClient(apiKey: apiKey)
-        let task = Task { try await client.correct(text, level: level, before: before, after: after) }
+        let task = Task { try await client.correct(text, level: level, before: before, after: after, dictionary: dictionary) }
         inFlight[key] = task
         defer { inFlight[key] = nil }
         let result = try await task.value

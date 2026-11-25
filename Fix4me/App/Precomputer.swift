@@ -15,16 +15,18 @@ final class Precomputer {
         var lastValue: String
         var lastChange: Date
         var requested: Request?     // 같은 글·설정에 요청을 되풀이하지 않기 위해
+        var ignored: Set<String> = []
     }
 
     private struct Request: Equatable {
         let value: String
         let level: CorrectionLevel
         let scope: ScopeMode
+        let dictionary: [String]
     }
 
     private let service: CorrectionService
-    private let badge = BadgeController()
+    private let indicator = IndicatorController()
     private let log = Logger(subsystem: "com.aib.fix4me", category: "precompute")
     private var session: Session?
     private var woken: Set<pid_t> = []
@@ -34,10 +36,20 @@ final class Precomputer {
 
     /// 교정을 쓰는 동안 true — 앱이 쓰는 중간 상태를 사용자의 입력으로 보지 않는다
     var suspended = false {
-        didSet { if suspended { badge.hide() } }
+        didSet { if suspended { indicator.hide() } }
     }
 
-    init(service: CorrectionService) { self.service = service }
+    /// 미리보기에서 "적용"을 눌렀을 때 (한 문단만)
+    var onApply: ((IndicatorController.Item, AXUIElement) -> Void)?
+
+    init(service: CorrectionService) {
+        self.service = service
+        indicator.onIgnore = { [weak self] item in self?.ignore(item) }
+        indicator.onApply = { [weak self] item in
+            guard let self, let element = session?.element else { return }
+            onApply?(item, element)
+        }
+    }
 
     func start() {
         loop?.cancel()
@@ -59,8 +71,9 @@ final class Precomputer {
     /// - Parameters: before: 쓰기 전 글 (지켜본 적 없는 입력창의 기준), processed: 처리한 범위의 결과 글
     func didWrite(_ value: String, before: String, processed: [String], to element: AXUIElement) {
         let base = TextScope.baseline(baseline(for: element) ?? before, adding: processed)
-        session = Session(element: element, baseline: base, lastValue: value, lastChange: .now, requested: nil)
-        badge.hide()
+        let ignored = session.flatMap { CFEqual($0.element, element) ? $0.ignored : nil } ?? []
+        session = Session(element: element, baseline: base, lastValue: value, lastChange: .now, requested: nil, ignored: ignored)
+        indicator.hide()
     }
 
     // MARK: - 감시
@@ -72,14 +85,14 @@ final class Precomputer {
               !Prefs.excluded.contains(app.bundleIdentifier ?? "") else { return reset() }
         guard let field = AXText.peek(app, maxCharacters: TextScope.wholeMaxLength) else {
             if woken.insert(app.processIdentifier).inserted { AXText.wake(app) }
-            badge.hide()
+            indicator.hide()
             return
         }
 
         // 새 입력창: 원래 있던 글은 보내지 않는다. 사용자가 바꾼 뒤부터 본다.
         guard var s = session, CFEqual(s.element, field.element) else {
             session = Session(element: field.element, baseline: field.value, lastValue: field.value, lastChange: .now, requested: nil)
-            badge.hide()
+            indicator.hide()
             return
         }
         if field.value != s.lastValue {
@@ -88,11 +101,11 @@ final class Precomputer {
             // 전송 등으로 비워지면 새 글로 본다
             if field.value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { s.baseline = field.value }
             session = s
-            badge.hide()
+            indicator.hide()
             return
         }
         guard Date.now.timeIntervalSince(s.lastChange) >= Self.idle,
-              !TextScope.changedParagraphs(in: field.value as NSString, baseline: s.baseline).isEmpty else { return badge.hide() }
+              !TextScope.changedParagraphs(in: field.value as NSString, baseline: s.baseline).isEmpty else { return indicator.hide() }
 
         let level = CorrectionLevel.current, scope = Prefs.scope
         // 선택 영역은 미리 교정하지 않는다 (커서 위치만 사용)
@@ -101,18 +114,18 @@ final class Precomputer {
             mode: scope, level: level, baseline: s.baseline
         ).filter { $0.length <= TextScope.maxLength }
 
-        let request = Request(value: field.value, level: level, scope: scope)
+        let request = Request(value: field.value, level: level, scope: scope, dictionary: Prefs.dictionary)
         if s.requested != request {
             s.requested = request
             session = s
             send(targets, in: field.value, level: level)
         }
-        showBadge(targets, field: field, level: level)
+        showIndicator(targets, field: field, level: level)
     }
 
     private func reset() {
         session = nil
-        badge.hide()
+        indicator.hide()
     }
 
     // MARK: - 요청
@@ -153,7 +166,7 @@ final class Precomputer {
             case .missingKey: pause = 300
             case let .http(status, _) where [401, 402, 403].contains(status): pause = 300
             case .http(429, _): pause = 60
-            case .implausible, .badResponse: pause = 0   // 이 글만의 문제
+            case .implausible, .badResponse, .emptyResponse: pause = 0   // 이 글만의 문제
             default: break
             }
             pausedUntil = max(pausedUntil, Date.now.addingTimeInterval(pause))
@@ -170,17 +183,30 @@ final class Precomputer {
         return true
     }
 
-    // MARK: - 배지
+    // MARK: - 표시
 
-    private func showBadge(_ targets: [NSRange], field: FocusedText, level: CorrectionLevel) {
-        guard Prefs.badge else { return badge.hide() }
+    private func showIndicator(_ targets: [NSRange], field: FocusedText, level: CorrectionLevel) {
+        guard Prefs.indicator else { return indicator.hide() }
         let ns = field.value as NSString
-        let count = targets.reduce(0) { sum, r in
+        let items = targets.compactMap { r -> IndicatorController.Item? in
             let text = ns.substring(with: r)
-            guard let fixed = service.cached(text, level: level) else { return sum }
-            return sum + TextDiff.hunks(old: text, new: fixed).count
+            guard !isIgnored(text, in: field.element),
+                  let fixed = service.cached(text, level: level), fixed != text else { return nil }
+            return .init(range: r, original: text, corrected: fixed, rect: AXText.screenRect(of: r, in: field.element))
         }
-        guard count > 0, let caret = AXText.caretRect(field) else { return badge.hide() }
-        badge.show(count, at: caret)
+        guard !items.isEmpty else { return indicator.hide() }
+        indicator.update(.init(
+            items: items, visible: AXText.visibleFrame(field.element), caret: AXText.caretRect(field), level: level
+        ))
+    }
+
+    /// 미리보기에서 "무시"한 글인지. 글을 바꾸면 다시 살아난다.
+    func isIgnored(_ text: String, in element: AXUIElement) -> Bool {
+        guard let session, CFEqual(session.element, element) else { return false }
+        return session.ignored.contains(text)
+    }
+
+    private func ignore(_ item: IndicatorController.Item) {
+        session?.ignored.insert(item.original)
     }
 }

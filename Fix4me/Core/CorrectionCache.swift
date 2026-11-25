@@ -3,6 +3,7 @@ struct CorrectionCache {
     struct Key: Hashable, Sendable {
         let level: CorrectionLevel
         let text: String
+        var dictionary: [String] = []   // 사전이 바뀌면 예전 결과를 쓰지 않는다
     }
 
     let capacity: Int

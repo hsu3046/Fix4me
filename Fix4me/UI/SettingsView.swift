@@ -19,7 +19,8 @@ final class SettingsModel {
 
     var scope = Prefs.scope { didSet { Prefs.scope = scope } }
     var precompute = Prefs.precompute { didSet { Prefs.precompute = precompute } }
-    var badge = Prefs.badge { didSet { Prefs.badge = badge } }
+    var indicator = Prefs.indicator { didSet { Prefs.indicator = indicator } }
+    var dictionaryText = Prefs.dictionaryText { didSet { Prefs.dictionaryText = dictionaryText } }
     var excluded = Prefs.excluded { didSet { Prefs.excluded = excluded } }
 
     /// 앱을 골라 미리 교정 제외 목록에 넣는다
@@ -145,7 +146,7 @@ struct SettingsView: View {
 
             Section("미리 교정") {
                 Toggle("입력이 멈추면 미리 교정해 두기", isOn: $model.precompute)
-                Toggle("고칠 곳 수를 커서 옆에 표시", isOn: $model.badge).disabled(!model.precompute)
+                Toggle("고칠 문단을 왼쪽 막대로 표시 (올리면 미리보기)", isOn: $model.indicator).disabled(!model.precompute)
                 Text("켜면 단축키를 누르지 않은 글도 OpenRouter 로 보내요. 비밀번호 입력란, 검색창, 주소창, 키처럼 보이는 글과 아래 앱은 보내지 않아요.")
                     .font(.caption).foregroundStyle(.secondary)
                 DisclosureGroup("제외한 앱 \(model.excluded.count)개") {
@@ -159,6 +160,14 @@ struct SettingsView: View {
                     Button("앱 추가…") { model.addExcludedApp() }
                 }
                 .disabled(!model.precompute)
+            }
+
+            Section("개인 사전") {
+                TextEditor(text: $model.dictionaryText)
+                    .font(.system(size: 13))
+                    .frame(height: 72)
+                Text("고치지 말아야 할 이름·용어를 한 줄에 하나씩 적어요. 지금 \(PersonalDictionary.parse(model.dictionaryText).count)개.")
+                    .font(.caption).foregroundStyle(.secondary)
             }
 
             Section("OpenRouter API 키") {

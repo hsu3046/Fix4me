@@ -80,38 +80,103 @@ enum TextDiff {
         }
     }
 
-    /// 바뀐 묶음(hunk) 목록. HUD 의 "N곳 수정" 과 미리보기에 쓴다.
-    static func hunks(old: String, new: String) -> [Hunk] {
-        let a = Array(old), b = Array(new)
-        let diff = b.difference(from: a)
+    /// 화면에 보여 줄 비교 조각
+    enum Segment: Equatable {
+        case same(String)
+        case removed(String)
+        case added(String)
+    }
+
+    /// 단어 단위 비교 (취소선 미리보기용). same+removed 를 이으면 old, same+added 를 이으면 new.
+    static func segments(old: String, new: String) -> [Segment] {
+        let a = tokens(old), b = tokens(new)
         var removed = Set<Int>(), inserted = Set<Int>()
-        for change in diff {
+        for change in b.difference(from: a) {
             switch change {
             case let .remove(offset, _, _): removed.insert(offset)
             case let .insert(offset, _, _): inserted.insert(offset)
             }
         }
 
-        var result: [Hunk] = []
-        var current: Hunk?
+        // (같은 글) 과 (지움, 넣음) 묶음이 번갈아 나오도록 모은다
+        struct Group { var same = "", del = "", ins = "" }
+        var groups = [Group()]
         var i = 0, j = 0
         while i < a.count || j < b.count {
-            let oldKept = i < a.count && !removed.contains(i)
-            let newKept = j < b.count && !inserted.contains(j)
-            if oldKept && newKept {
-                if let h = current { result.append(h); current = nil }
+            if i < a.count, removed.contains(i) { groups[groups.count - 1].del += a[i]; i += 1 }
+            else if j < b.count, inserted.contains(j) { groups[groups.count - 1].ins += b[j]; j += 1 }
+            else if i < a.count, j < b.count {
+                let last = groups[groups.count - 1]
+                if !last.del.isEmpty || !last.ins.isEmpty { groups.append(Group()) }
+                groups[groups.count - 1].same += a[i]   // same 은 묶음의 앞에 온다
                 i += 1; j += 1
-            } else if i < a.count && removed.contains(i) {
-                current = current ?? Hunk(from: "", to: "")
-                current!.from.append(a[i]); i += 1
-            } else if j < b.count && inserted.contains(j) {
-                current = current ?? Hunk(from: "", to: "")
-                current!.to.append(b[j]); j += 1
+            } else { break }
+        }
+
+        // 바뀐 단어 사이에 공백만 있으면 한 묶음으로 (띄엄띄엄 끊겨 보이지 않게)
+        var merged: [Group] = []
+        for g in groups {
+            if let last = merged.last, !last.del.isEmpty || !last.ins.isEmpty, !g.del.isEmpty || !g.ins.isEmpty,
+               !g.same.isEmpty, !g.same.contains("\n"), g.same.allSatisfy(\.isWhitespace) {
+                merged[merged.count - 1].del += g.same + g.del
+                merged[merged.count - 1].ins += g.same + g.ins
             } else {
-                break // 도달 불가 (방어)
+                merged.append(g)
             }
         }
-        if let h = current { result.append(h) }
+        return merged.flatMap { g -> [Segment] in
+            var out: [Segment] = []
+            if !g.same.isEmpty { out.append(.same(g.same)) }
+            if !g.del.isEmpty { out.append(.removed(g.del)) }
+            if !g.ins.isEmpty { out.append(.added(g.ins)) }
+            return out
+        }
+    }
+
+    /// 바뀐 곳 목록 ("N곳", 알림의 앞부분). 이어진 지움+넣음은 한 곳.
+    static func hunks(old: String, new: String) -> [Hunk] {
+        var result: [Hunk] = []
+        var afterRemoval = false
+        for segment in segments(old: old, new: new) {
+            switch segment {
+            case .same: afterRemoval = false
+            case let .removed(t): result.append(Hunk(from: t, to: "")); afterRemoval = true
+            case let .added(t):
+                if afterRemoval { result[result.count - 1].to = t } else { result.append(Hunk(from: "", to: t)) }
+                afterRemoval = false
+            }
+        }
+        return result
+    }
+
+    /// 대부분 바뀌어 단어별 취소선이 오히려 읽기 어려운지 (남은 글이 40% 미만)
+    static func isMostlyChanged(_ segments: [Segment]) -> Bool {
+        var same = 0, old = 0
+        for segment in segments {
+            switch segment {
+            case let .same(t): same += t.count; old += t.count
+            case let .removed(t): old += t.count
+            case .added: break
+            }
+        }
+        return old >= 20 && Double(same) / Double(old) < 0.4
+    }
+
+    /// 단어(글자·숫자 이어짐), 공백, 그 밖의 한 글자. 띄어쓰기가 없는 가나·한자는 한 글자씩.
+    private static func tokens(_ s: String) -> [String] {
+        enum Kind { case word, space, single }
+        func kind(_ c: Character) -> Kind {
+            if c == "\n" { return .single }
+            if c.isWhitespace { return .space }
+            if let v = c.unicodeScalars.first?.value, (0x3040...0x30FF).contains(v) || (0x3400...0x9FFF).contains(v) { return .single }
+            return c.isLetter || c.isNumber || c == "'" || c == "’" ? .word : .single
+        }
+        var result: [String] = [], last: Kind?
+        for c in s {
+            let k = kind(c)
+            if k != .single, k == last { result[result.count - 1].append(c) } else { result.append(String(c)) }
+            last = k
+        }
         return result
     }
 }

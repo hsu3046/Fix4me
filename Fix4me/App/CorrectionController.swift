@@ -22,6 +22,7 @@ final class CorrectionController {
     init(service: CorrectionService, precomputer: Precomputer) {
         self.service = service
         self.precomputer = precomputer
+        precomputer.onApply = { [weak self] item, element in self?.applyOne(item, to: element) }
     }
 
     func correctFocused() {
@@ -60,10 +61,18 @@ final class CorrectionController {
             hud.show(.error("너무 길어요 — 고칠 부분을 선택해 주세요"), near: nil)
             return
         }
-        let targets = TextScope.plan(
+        var targets = TextScope.plan(
             in: field.value, selection: field.selection, mode: scope, level: level,
             baseline: precomputer.baseline(for: field.element)
         )
+        // 미리보기에서 무시한 문단은 뺀다 (직접 선택한 글은 예외)
+        if field.selection.length == 0, !targets.isEmpty {
+            targets.removeAll { precomputer.isIgnored(value.substring(with: $0), in: field.element) }
+            if targets.isEmpty {
+                hud.show(.error("무시한 글이에요 — 고치려면 선택하고 다시 눌러 주세요"), near: AXText.caretRect(field))
+                return
+            }
+        }
         guard let last = targets.last else {
             hud.show(.error("교정할 텍스트가 없어요"), near: AXText.screenRect(of: field.selection, in: field.element))
             return
@@ -90,6 +99,34 @@ final class CorrectionController {
         let elapsed = ContinuousClock.now - started
         log.info("corrected level=\(level.rawValue) targets=\(targets.count) in \(elapsed.seconds, format: .fixed(precision: 2))s")
 
+        await finish(field: field, targets: targets, originals: originals, corrected: corrected,
+                     seconds: elapsed.seconds, anchor: anchor)
+    }
+
+    /// 미리보기의 "적용": 그 문단만 고친다
+    private func applyOne(_ item: IndicatorController.Item, to element: AXUIElement) {
+        guard !busy else { return }
+        busy = true
+        Task {
+            defer { busy = false }
+            // 미리보기를 띄운 뒤 글이나 입력창이 바뀌지 않았는지 확인
+            guard AXText.isFocused(element), let app = NSWorkspace.shared.frontmostApplication,
+                  let field = AXText.peek(app, maxCharacters: TextScope.wholeMaxLength), CFEqual(field.element, element),
+                  NSMaxRange(item.range) <= (field.value as NSString).length,
+                  (field.value as NSString).substring(with: item.range) == item.original else {
+                hud.show(.error("내용이 바뀌어 적용하지 않았어요"), near: item.rect)
+                return
+            }
+            AXText.prepareForWriting(field.element)
+            await finish(field: field, targets: [item.range], originals: [item.original], corrected: [item.corrected],
+                         seconds: 0, anchor: item.rect ?? AXText.caretRect(field))
+        }
+    }
+
+    /// 교정 결과를 입력창에 쓰고, 되돌리기를 기록하고, 알린다.
+    private func finish(
+        field: FocusedText, targets: [NSRange], originals: [String], corrected: [String], seconds: Double, anchor: NSRect?
+    ) async {
         // 범위 안에서 실제로 바뀐 구간만, 글 전체 기준 위치로
         var edits: [TextEdit] = []
         for (i, range) in targets.enumerated() {
@@ -99,7 +136,7 @@ final class CorrectionController {
         }
         guard !edits.isEmpty else {
             precomputer.didWrite(field.value, before: field.value, processed: originals, to: field.element)
-            hud.show(.noChange(seconds: elapsed.seconds), near: anchor)
+            hud.show(.noChange(seconds: seconds), near: anchor)
             return
         }
 
@@ -134,7 +171,7 @@ final class CorrectionController {
             AXText.select(NSRange(location: caret, length: 0), in: field.element)
         }
         let hunks = zip(originals, corrected).flatMap { TextDiff.hunks(old: $0, new: $1) }
-        hud.show(.done(count: hunks.count, preview: Self.preview(hunks), seconds: elapsed.seconds), near: anchor)
+        hud.show(.done(count: hunks.count, hunks: hunks, seconds: seconds), near: anchor)
     }
 
     /// 범위마다 교정 (캐시에 있으면 즉시, 진행 중이면 이어받음). 하나라도 실패하면 아무것도 쓰지 않는다.
@@ -195,15 +232,6 @@ final class CorrectionController {
         let ok = applied.edits.count == edit.undo.count
         hud.show(ok ? .reverted : .error("다 되돌리지 못했어요 — ⌘Z 를 써 주세요"),
                  near: edit.undo.first.flatMap { AXText.screenRect(of: $0.range, in: edit.element) })
-    }
-
-    /// "않 → 안, 금새 → 금세" 처럼 앞쪽 몇 개만
-    private static func preview(_ hunks: [TextDiff.Hunk]) -> String {
-        hunks.prefix(3).map { h in
-            let from = h.from.isEmpty ? "␣" : String(h.from.prefix(12))
-            let to = h.to.isEmpty ? "삭제" : String(h.to.prefix(12))
-            return "\(from) → \(to)"
-        }.joined(separator: ", ") + (hunks.count > 3 ? " …" : "")
     }
 }
 

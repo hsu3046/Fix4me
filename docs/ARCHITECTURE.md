@@ -27,8 +27,10 @@
 | `Fix4me/Core/AXText.swift` | Accessibility 읽기·쓰기·좌표, 붙여넣기 대체 경로 |
 | `Fix4me/Core/HotKeyCenter.swift` | Carbon `RegisterEventHotKey` 래퍼 |
 | `Fix4me/Core/OpenRouterClient.swift` | 교정 요청 1회, 오류 원문(status·metadata.raw) 보존 |
-| `Fix4me/App/Precomputer.swift` | 미리 교정: 0.3초마다 감시, 0.9초 멈추면 요청, 배지 (분당 30건 상한, 오류 시 쉼) |
+| `Fix4me/App/Precomputer.swift` | 미리 교정: 0.3초마다 감시, 0.9초 멈추면 요청, 표시 (분당 30건 상한, 오류 시 쉼) |
 | `Fix4me/App/CorrectionService.swift`, `Core/CorrectionCache.swift` | 결과 캐시(메모리, 300개)와 진행 중 요청 공유 |
+| `Fix4me/UI/Indicator.swift`, `DiffText.swift`, `Core/IndicatorLayout.swift` | 고칠 문단 왼쪽 막대(위치를 모르면 모서리 배지), 롤오버 미리보기(원문 취소선 + 고친 글, 적용/무시) |
+| `Fix4me/Core/PersonalDictionary.swift` | 개인 사전: 프롬프트 지시 + 어긴 줄은 원문으로 |
 | `Fix4me/Core/PrecomputeFilter.swift`, `Prefs.swift` | 보내지 않을 글 판정, 설정값·제외 앱 |
 | `Fix4me/Core/Keychain.swift` | API 키 저장 (로그인 키체인) |
 | `Fix4me/Core/TextScope.swift`, `TextDiff.swift`, `CorrectionParser.swift` | 순수 로직 (단위 테스트 대상) |

@@ -124,6 +124,89 @@ final class EditsTests: XCTestCase {
     }
 }
 
+final class IndicatorLayoutTests: XCTestCase {
+    private let field = CGRect(x: 100, y: 100, width: 400, height: 200)
+
+    func testBarSitsLeftOfParagraph() {
+        let bar = IndicatorLayout.bar(text: CGRect(x: 110, y: 150, width: 300, height: 40), visible: field)
+        XCTAssertEqual(bar, CGRect(x: 100, y: 150, width: 4, height: 40))
+    }
+
+    func testBarIsClippedToVisibleArea() {
+        let bar = IndicatorLayout.bar(text: CGRect(x: 110, y: 0, width: 300, height: 600), visible: field)!
+        XCTAssertGreaterThanOrEqual(bar.minY, field.minY - 4)
+        XCTAssertLessThanOrEqual(bar.maxY, field.maxY + 4)
+    }
+
+    func testImplausiblePositionsFallBackToPill() {
+        XCTAssertNil(IndicatorLayout.bar(text: nil, visible: field))
+        XCTAssertNil(IndicatorLayout.bar(text: CGRect(x: 110, y: 150, width: 300, height: 40), visible: nil))
+        XCTAssertNil(IndicatorLayout.bar(text: CGRect(x: 0, y: 150, width: 300, height: 20), visible: field))   // 왼쪽 밖 (세로는 겹침)
+        XCTAssertNil(IndicatorLayout.bar(text: CGRect(x: 110, y: 900, width: 300, height: 20), visible: field)) // 스크롤 밖
+        XCTAssertNil(IndicatorLayout.bar(text: CGRect(x: 110, y: 150, width: 0, height: 0), visible: field))
+    }
+
+    func testPreviewStaysOnScreen() {
+        let screen = CGRect(x: 0, y: 0, width: 1000, height: 800), size = CGSize(width: 400, height: 300)
+        for anchor in [CGRect(x: 10, y: 780, width: 4, height: 18), CGRect(x: 990, y: 5, width: 4, height: 18)] {
+            let o = IndicatorLayout.previewOrigin(size: size, anchor: anchor, screen: screen)
+            XCTAssertTrue(screen.contains(CGRect(origin: o, size: size)), "\(o)")
+        }
+    }
+}
+
+final class DictionaryTests: XCTestCase {
+    func testParseTrimsDedupesAndSkipsBlank() {
+        XCTAssertEqual(PersonalDictionary.parse(" 틈랩 \n\nknowai\n틈랩\nAIB"), ["틈랩", "knowai", "AIB"])
+    }
+
+    func testChangedDictionaryWordRestoresOnlyThatLine() {
+        let original = "틈랩에서 않 됨\n금새 끝"
+        XCTAssertEqual(PersonalDictionary.enforce(original: original, corrected: "틈 랩에서 안 됨\n금세 끝", words: ["틈랩"]),
+                       "틈랩에서 않 됨\n금세 끝")
+    }
+
+    func testUnpairableLinesRestoreEverything() {
+        XCTAssertEqual(PersonalDictionary.enforce(original: "knowai is good", corrected: "Know AI\nis good", words: ["knowai"]), "knowai is good")
+    }
+
+    func testDroppingOneOfTwoOccurrencesIsAViolation() {
+        XCTAssertEqual(PersonalDictionary.enforce(original: "AIB와 AIB", corrected: "AIB와 그곳", words: ["AIB"]), "AIB와 AIB")
+        XCTAssertEqual(PersonalDictionary.enforce(original: "AIB 않 됨", corrected: "AIB 안 됨", words: ["AIB"]), "AIB 안 됨")
+    }
+
+    func testPromptListsWordsOnlyWhenPresent() {
+        XCTAssertFalse(OpenRouterClient.systemPrompt(for: .polish).contains("Never change, translate"))
+        XCTAssertTrue(OpenRouterClient.systemPrompt(for: .polish, dictionary: ["틈랩"]).contains("\"틈랩\""))
+    }
+
+    func testCacheKeySeparatesDictionaries() {
+        var c = CorrectionCache(capacity: 5)
+        c.insert("x", for: .init(level: .polish, text: "a", dictionary: []))
+        XCTAssertNil(c.value(for: .init(level: .polish, text: "a", dictionary: ["틈랩"])))
+    }
+}
+
+final class RetryTests: XCTestCase {
+    func testEmptyResponseIsRetriedOnceOnly() async {
+        var calls = 0
+        let ok = try? await OpenRouterClient.retryingEmpty {
+            calls += 1
+            if calls == 1 { throw CorrectionError.emptyResponse("빈") }
+            return "됨"
+        }
+        XCTAssertEqual(ok, "됨"); XCTAssertEqual(calls, 2)
+
+        calls = 0
+        _ = try? await OpenRouterClient.retryingEmpty { calls += 1; throw CorrectionError.emptyResponse("빈") }
+        XCTAssertEqual(calls, 2)
+
+        calls = 0
+        _ = try? await OpenRouterClient.retryingEmpty { calls += 1; throw CorrectionError.http(status: 429, message: "") }
+        XCTAssertEqual(calls, 1)
+    }
+}
+
 final class PrecomputeTests: XCTestCase {
     func testFilterSkipsSecretsAndTokens() {
         XCTAssertTrue(PrecomputeFilter.isWorthChecking("I has a apple."))
@@ -175,10 +258,46 @@ final class TextDiffTests: XCTestCase {
         XCTAssertNil(TextDiff.changedSpan(old: "same", new: "same"))
     }
 
-    func testHunkCount() {
+    func testHunksAreWholeWords() {
         let hunks = TextDiff.hunks(old: "왠만하면 오늘 안에 끝낼께요.", new: "웬만하면 오늘 안에 끝낼게요.")
-        XCTAssertEqual(hunks.count, 2)
-        XCTAssertEqual(hunks.first, .init(from: "왠", to: "웬"))
+        XCTAssertEqual(hunks, [.init(from: "왠만하면", to: "웬만하면"), .init(from: "끝낼께요", to: "끝낼게요")])
+        XCTAssertEqual(TextDiff.hunks(old: "I has apple", new: "I have an apple"), [.init(from: "has", to: "have an")])
+        XCTAssertEqual(TextDiff.hunks(old: "금요일 까지 확인", new: "금요일까지 확인"), [.init(from: "금요일 까지", to: "금요일까지")])
+    }
+
+    func testAdjacentChangedWordsAreOneHunkButLinesAreNot() {
+        XCTAssertEqual(TextDiff.hunks(old: "나는 밥 먹다", new: "나는 빵 샀다"), [.init(from: "밥 먹다", to: "빵 샀다")])
+        XCTAssertEqual(TextDiff.hunks(old: "밥\n먹다", new: "빵\n샀다").count, 2)   // 다른 줄은 따로
+    }
+
+    func testJapaneseDiffIsPerCharacter() {
+        XCTAssertEqual(TextDiff.segments(old: "会議わ10時", new: "会議は10時"),
+                       [.same("会議"), .removed("わ"), .added("は"), .same("10時")])
+    }
+
+    /// 어떤 글이든 same+removed = 원문, same+added = 고친 글 (미리보기가 사실과 달라지면 안 된다)
+    func testSegmentsReconstructBothSides() {
+        var rng = SystemRandomNumberGenerator()
+        let pieces = ["가", "나다", " ", "  ", "\n", "ab", "Ab'c", ".", "😀", "は", "漢", "12", "é", ","]
+        func random() -> String { (0..<Int.random(in: 0...14, using: &rng)).map { _ in pieces.randomElement(using: &rng)! }.joined() }
+        for _ in 0..<3000 {
+            let old = random(), new = random()
+            var left = "", right = ""
+            for segment in TextDiff.segments(old: old, new: new) {
+                switch segment {
+                case let .same(t): left += t; right += t
+                case let .removed(t): left += t
+                case let .added(t): right += t
+                }
+            }
+            XCTAssertEqual(left, old); XCTAssertEqual(right, new)
+        }
+    }
+
+    func testMostlyChangedSwitchesToWholeComparison() {
+        let old = "It was a very successful beta test."
+        XCTAssertTrue(TextDiff.isMostlyChanged(TextDiff.segments(old: old, new: "완전히 다른 문장으로 바뀌었습니다")))
+        XCTAssertFalse(TextDiff.isMostlyChanged(TextDiff.segments(old: old, new: "It was a very successful test.")))
     }
 }
 

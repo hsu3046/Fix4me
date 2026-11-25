@@ -3,7 +3,7 @@ import SwiftUI
 
 enum HUDState: Equatable {
     case working(String)   // 진행 문구 (강도별: 교정 중… / 다듬는 중…)
-    case done(count: Int, preview: String, seconds: Double)
+    case done(count: Int, hunks: [TextDiff.Hunk], seconds: Double)
     case noChange(seconds: Double)
     case reverted
     case error(String)
@@ -111,9 +111,9 @@ private struct HUDView: View {
     /// 미리 교정해 둔 결과는 "즉시"
     private static func time(_ s: Double) -> String { s < 0.05 ? "즉시" : String(format: "%.1f초", s) }
 
-    private var detail: String? {
+    private var detail: AttributedString? {
         switch state {
-        case let .done(_, preview, _): "\(preview)   ·   \(HotKeyCenter.revert.label) 되돌리기"
+        case let .done(_, hunks, _): DiffText.summary(hunks) + AttributedString("   ·   \(HotKeyCenter.revert.label) 되돌리기")
         default: nil
         }
     }
